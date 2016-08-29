@@ -1391,6 +1391,11 @@ OPTION(rbd_journal_pool, OPT_STR) // pool for journal objects
 OPTION(rbd_journal_max_payload_bytes, OPT_U32) // maximum journal payload size before splitting
 OPTION(rbd_journal_max_concurrent_object_sets, OPT_INT) // maximum number of object sets a journal client can be behind before it is automatically unregistered
 
+ /**
+  * RBD persistent, client-side cache options
+  */
+OPTION(rbd_persistent_cache_enabled, OPT_BOOL, true)
+
 /**
  * RBD Mirror options
  */
