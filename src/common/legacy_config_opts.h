@@ -1394,7 +1394,14 @@ OPTION(rbd_journal_max_concurrent_object_sets, OPT_INT) // maximum number of obj
  /**
   * RBD persistent, client-side cache options
   */
-OPTION(rbd_persistent_cache_enabled, OPT_BOOL, true)
+OPTION(rbd_persistent_cache_enabled, OPT_BOOL)
+OPTION(rbd_persistent_cache_size, OPT_U64)
+OPTION(rbd_persistent_cache_path, OPT_STR)
+OPTION(rbd_persistent_cache_alloc_size, OPT_U32)
+OPTION(rbd_persistent_cache_journal_ring_buffer_count, OPT_U64)
+OPTION(rbd_persistent_cache_journal_block_size, OPT_U32)
+OPTION(rbd_persistent_cache_journal_event_ref_count, OPT_U32)
+OPTION(rbd_persistent_cache_metadata_size, OPT_U64)
 
 /**
  * RBD Mirror options
