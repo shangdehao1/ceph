@@ -40,18 +40,20 @@ int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferli
   std::string cache_file_name = m_image_ctx->data_ctx.get_pool_name() + oid;
 
   //TODO(): make a cache for cachefile fd
-  SyncFile* target_cache_file = new SyncFile(cct, cache_file_name);
-  target_cache_file->open();
+  //SyncFile* target_cache_file = new SyncFile(cct, cache_file_name);
+  //target_cache_file->open();
+  //int ret = target_cache_file->read_object_from_file(read_data, offset, length);
+  ReadSyncFileRequest* read_request = new ReadSyncFileRequest(cct, cache_file_name, read_data, offset, length); 
+  int ret = read_request->send();
+ // if (ret < 0) {
+ //   ldout(cct, 5) << "read from file return error: " << ret 
+ //                 << "file name= " << cache_file_name
+ //                 << dendl;
+ // }
 
-  int ret = target_cache_file->read_object_from_file(read_data, offset, length);
-  if (ret < 0) {
-    ldout(cct, 5) << "read from file return error: " << ret 
-                  << "file name= " << cache_file_name
-                  << dendl;
-  }
+  //delete target_cache_file;
 
-  delete target_cache_file;
-  return ret;
+  return length;
 }
 
 
