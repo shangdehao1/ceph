@@ -118,15 +118,22 @@ int SharedPersistentObjectCacherObjectDispatch<I>::handle_read_cache(
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << dendl;
 
-  // try to read from parent image
+  // TODO : try to read from parent image...yuan
+
+  // hit
   if (cache) {
-    int r = m_object_store->read_object(oid, read_data, object_off, object_len, on_dispatched);
-    //int r = object_len;
-    if (r != 0) {
+    auto ctx = new FunctionContext([this, dispatch_result, on_dispatched](int ret) {
+      if(ret < 0) {
+        std::cout << "m_object_store->read_object fails." << std::endl;
+        assert(0);
+      } 
       *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
-      //TODO(): complete in syncfile
-      on_dispatched->complete(r);
-      ldout(cct, 20) << "AAAAcomplete=" << *dispatch_result <<dendl;
+      on_dispatched->complete(ret);
+    }); 
+
+    int r = m_object_store->read_object(oid, read_data, object_off, object_len, ctx);
+    if (r != 0) {
+      std::cout << "intial read_object fails.." << std::endl;
       return true;
     }
   } else {

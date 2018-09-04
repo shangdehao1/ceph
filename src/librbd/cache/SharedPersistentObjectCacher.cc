@@ -32,7 +32,8 @@ SharedPersistentObjectCacher<I>::~SharedPersistentObjectCacher() {
 }
 
 template <typename I>
-int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferlist* read_data, uint64_t offset, uint64_t length, Context *on_finish) {
+int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferlist* read_data, 
+                                                 uint64_t offset, uint64_t length, Context *on_finish) {
 
   auto *cct = m_image_ctx->cct;
   ldout(cct, 20) << "object: " << oid << dendl;
