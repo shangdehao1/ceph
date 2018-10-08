@@ -47,7 +47,7 @@ public:
                  bufferlist &&bl, int op_flags, bool native_async=true);
   void aio_discard(AioCompletion *c, uint64_t off, uint64_t len,
                    bool skip_partial_discard, bool native_async=true);
-  void aio_flush(AioCompletion *c, bool native_async=true);
+  void aio_flush(AioCompletion *c, bool native_async=true, FlushSource flush_source = FLUSH_SOURCE_USER);
   void aio_writesame(AioCompletion *c, uint64_t off, uint64_t len,
                      bufferlist &&bl, int op_flags, bool native_async=true);
   void aio_compare_and_write(AioCompletion *c, uint64_t off,

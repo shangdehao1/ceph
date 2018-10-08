@@ -477,6 +477,7 @@ librados::IoCtx TestMigration::_other_pool_ioctx;
 
 TEST_F(TestMigration, Empty)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   uint64_t features = m_ictx->features ^ RBD_FEATURE_LAYERING;
   ASSERT_EQ(0, m_opts.set(RBD_IMAGE_OPTION_FEATURES, features));
 
@@ -487,6 +488,7 @@ TEST_F(TestMigration, Empty)
 
 TEST_F(TestMigration, OtherName)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   std::string name = get_temp_image_name();
 
   migrate(m_ioctx, name);
@@ -496,6 +498,7 @@ TEST_F(TestMigration, OtherName)
 
 TEST_F(TestMigration, OtherPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   migrate(_other_pool_ioctx, m_image_name);
 
   ASSERT_EQ(_other_pool_ioctx.get_id(), m_ictx->md_ctx.get_id());
@@ -515,6 +518,7 @@ TEST_F(TestMigration, OtherNamespace)
 
 TEST_F(TestMigration, DataPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   ASSERT_EQ(0, m_opts.set(RBD_IMAGE_OPTION_DATA_POOL,
                           _other_pool_ioctx.get_pool_name().c_str()));
 
@@ -525,6 +529,7 @@ TEST_F(TestMigration, DataPool)
 
 TEST_F(TestMigration, AbortAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   migration_prepare(m_ioctx, m_image_name);
   migration_status(RBD_IMAGE_MIGRATION_STATE_PREPARED);
   migration_abort(m_ioctx, m_image_name);
@@ -532,6 +537,7 @@ TEST_F(TestMigration, AbortAfterPrepare)
 
 TEST_F(TestMigration, AbortAfterFailedPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   ASSERT_EQ(0, m_opts.set(RBD_IMAGE_OPTION_DATA_POOL, "INVALID_POOL"));
 
   migration_prepare(m_ioctx, m_image_name, -ENOENT);
@@ -541,6 +547,7 @@ TEST_F(TestMigration, AbortAfterFailedPrepare)
 
 TEST_F(TestMigration, AbortAfterExecute)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   migration_prepare(m_ioctx, m_image_name);
   migration_status(RBD_IMAGE_MIGRATION_STATE_PREPARED);
   migration_execute(m_ioctx, m_image_name);
@@ -550,6 +557,7 @@ TEST_F(TestMigration, AbortAfterExecute)
 
 TEST_F(TestMigration, OtherPoolAbortAfterExecute)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   migration_prepare(_other_pool_ioctx, m_image_name);
   migration_status(RBD_IMAGE_MIGRATION_STATE_PREPARED);
   migration_execute(_other_pool_ioctx, m_image_name);
@@ -574,6 +582,7 @@ TEST_F(TestMigration, OtherNamespaceAbortAfterExecute)
 
 TEST_F(TestMigration, MirroringSamePool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
 
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(m_ioctx, RBD_MIRROR_MODE_IMAGE));
@@ -591,6 +600,7 @@ TEST_F(TestMigration, MirroringSamePool)
 
 TEST_F(TestMigration, MirroringAbort)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
 
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(m_ioctx, RBD_MIRROR_MODE_IMAGE));
@@ -613,6 +623,7 @@ TEST_F(TestMigration, MirroringAbort)
 
 TEST_F(TestMigration, MirroringOtherPoolDisabled)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
 
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(m_ioctx, RBD_MIRROR_MODE_IMAGE));
@@ -630,6 +641,7 @@ TEST_F(TestMigration, MirroringOtherPoolDisabled)
 
 TEST_F(TestMigration, MirroringOtherPoolEnabled)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
 
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(m_ioctx, RBD_MIRROR_MODE_IMAGE));
@@ -649,6 +661,7 @@ TEST_F(TestMigration, MirroringOtherPoolEnabled)
 
 TEST_F(TestMigration, MirroringPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
 
   ASSERT_EQ(0, librbd::api::Mirror<>::mode_set(_other_pool_ioctx,
@@ -666,6 +679,7 @@ TEST_F(TestMigration, MirroringPool)
 TEST_F(TestMigration, Group)
 {
   REQUIRE_FORMAT_V2();
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
 
   ASSERT_EQ(0, librbd::api::Group<>::create(m_ioctx, "123"));
   ASSERT_EQ(0, librbd::api::Group<>::image_add(m_ioctx, "123", m_ioctx,
@@ -688,6 +702,7 @@ TEST_F(TestMigration, Group)
 TEST_F(TestMigration, GroupAbort)
 {
   REQUIRE_FORMAT_V2();
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
 
   ASSERT_EQ(0, librbd::api::Group<>::create(m_ioctx, "123"));
   ASSERT_EQ(0, librbd::api::Group<>::image_add(m_ioctx, "123", m_ioctx,
@@ -715,12 +730,14 @@ TEST_F(TestMigration, GroupAbort)
 
 TEST_F(TestMigration, NoSnaps)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
   migrate(m_ioctx, m_image_name);
 }
 
 TEST_F(TestMigration, NoSnapsOtherPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   test_no_snaps();
@@ -729,6 +746,7 @@ TEST_F(TestMigration, NoSnapsOtherPool)
 
 TEST_F(TestMigration, NoSnapsDataPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   ASSERT_EQ(0, m_opts.set(RBD_IMAGE_OPTION_DATA_POOL,
@@ -740,6 +758,7 @@ TEST_F(TestMigration, NoSnapsDataPool)
 
 TEST_F(TestMigration, NoSnapsShrinkAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -754,6 +773,7 @@ TEST_F(TestMigration, NoSnapsShrinkAfterPrepare)
 
 TEST_F(TestMigration, NoSnapsShrinkToZeroBeforePrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
   resize(0);
 
@@ -762,6 +782,7 @@ TEST_F(TestMigration, NoSnapsShrinkToZeroBeforePrepare)
 
 TEST_F(TestMigration, NoSnapsShrinkToZeroAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -776,6 +797,7 @@ TEST_F(TestMigration, NoSnapsShrinkToZeroAfterPrepare)
 
 TEST_F(TestMigration, NoSnapsExpandAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -790,6 +812,7 @@ TEST_F(TestMigration, NoSnapsExpandAfterPrepare)
 
 TEST_F(TestMigration, NoSnapsSnapAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_no_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -806,12 +829,14 @@ TEST_F(TestMigration, NoSnapsSnapAfterPrepare)
 
 TEST_F(TestMigration, Snaps)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
   migrate(m_ioctx, m_image_name);
 }
 
 TEST_F(TestMigration, SnapsOtherPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   test_no_snaps();
@@ -822,6 +847,7 @@ TEST_F(TestMigration, SnapsOtherPool)
 
 TEST_F(TestMigration, SnapsDataPool)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   ASSERT_EQ(0, m_opts.set(RBD_IMAGE_OPTION_DATA_POOL,
@@ -833,6 +859,7 @@ TEST_F(TestMigration, SnapsDataPool)
 
 TEST_F(TestMigration, SnapsShrinkAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -847,6 +874,7 @@ TEST_F(TestMigration, SnapsShrinkAfterPrepare)
 
 TEST_F(TestMigration, SnapsShrinkToZeroBeforePrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
   resize(0);
 
@@ -855,6 +883,7 @@ TEST_F(TestMigration, SnapsShrinkToZeroBeforePrepare)
 
 TEST_F(TestMigration, SnapsShrinkToZeroAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -869,6 +898,7 @@ TEST_F(TestMigration, SnapsShrinkToZeroAfterPrepare)
 
 TEST_F(TestMigration, SnapsExpandAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -885,6 +915,7 @@ TEST_F(TestMigration, SnapsExpandAfterPrepare)
 
 TEST_F(TestMigration, SnapsExpandAfterPrepare2)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   auto size = m_ictx->size;
 
   write(size >> 1, 10, 'X');
@@ -906,6 +937,7 @@ TEST_F(TestMigration, SnapsExpandAfterPrepare2)
 
 TEST_F(TestMigration, SnapsSnapAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -932,6 +964,7 @@ TEST_F(TestMigration, SnapsSnapAfterPrepare)
 
 TEST_F(TestMigration, SnapsSnapExpandAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_snaps();
 
   migration_prepare(m_ioctx, m_image_name);
@@ -949,6 +982,7 @@ TEST_F(TestMigration, SnapsSnapExpandAfterPrepare)
 
 TEST_F(TestMigration, Clone)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_LAYERING);
 
   test_clone();
@@ -957,6 +991,7 @@ TEST_F(TestMigration, Clone)
 
 TEST_F(TestMigration, CloneUpdateAfterPrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   REQUIRE_FEATURE(RBD_FEATURE_LAYERING);
 
   write(0, 10, 'X');
@@ -973,6 +1008,7 @@ TEST_F(TestMigration, CloneUpdateAfterPrepare)
 
 TEST_F(TestMigration, TriggerAssertSnapcSeq)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   auto size = m_ictx->size;
 
   write((size >> 1) + 0, 10, 'A');
@@ -997,6 +1033,7 @@ TEST_F(TestMigration, TriggerAssertSnapcSeq)
 
 TEST_F(TestMigration, SnapTrimBeforePrepare)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   auto size = m_ictx->size;
 
   write(size >> 1, 10, 'A');
@@ -1024,6 +1061,7 @@ TEST_F(TestMigration, StressNoMigrate)
 
 TEST_F(TestMigration, Stress)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_stress();
 
   migrate(m_ioctx, m_image_name);
@@ -1031,10 +1069,12 @@ TEST_F(TestMigration, Stress)
 
 TEST_F(TestMigration, Stress2)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_stress2(false);
 }
 
 TEST_F(TestMigration, StressLive)
 {
+  REQUIRE(!is_feature_enabled(RBD_FEATURE_IMAGE_CACHE));
   test_stress2(true);
 }

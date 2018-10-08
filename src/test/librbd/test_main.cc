@@ -22,12 +22,19 @@ extern void register_test_mirroring();
 extern void register_test_mirroring_watcher();
 extern void register_test_object_map();
 extern void register_test_operations();
+#if defined(WITH_RWL)
+extern void register_test_blockguard();
+extern void register_test_write_log_map();
+#endif //defined(WITH_RWL)
 #endif // TEST_LIBRBD_INTERNALS
 
 int main(int argc, char **argv)
 {
   setenv("RBD_FORCE_ALLOW_V1","1",1);
-
+#if defined(WITH_RWL)
+  /* Disable actual PMDK persistence guarantees for unit tests */
+  setenv("PMEM_IS_PMEM_FORCE","1",1);
+#endif
   register_test_librbd();
 #ifdef TEST_LIBRBD_INTERNALS
   register_test_deep_copy();
@@ -41,6 +48,10 @@ int main(int argc, char **argv)
   register_test_mirroring_watcher();
   register_test_object_map();
   register_test_operations();
+#if defined(WITH_RWL)
+  register_test_blockguard();
+  register_test_write_log_map();
+#endif //defined(WITH_RWL)
 #endif // TEST_LIBRBD_INTERNALS
 
   ::testing::InitGoogleTest(&argc, argv);

@@ -244,7 +244,7 @@ int ImageRequestWQ<I>::flush() {
 
   C_SaferCond cond;
   AioCompletion *c = AioCompletion::create(&cond);
-  aio_flush(c, false);
+  aio_flush(c, false, FLUSH_SOURCE_INTERNAL);
 
   int r = cond.wait();
   if (r < 0) {
@@ -373,7 +373,7 @@ void ImageRequestWQ<I>::aio_discard(AioCompletion *c, uint64_t off,
 }
 
 template <typename I>
-void ImageRequestWQ<I>::aio_flush(AioCompletion *c, bool native_async) {
+void ImageRequestWQ<I>::aio_flush(AioCompletion *c, bool native_async, FlushSource flush_source) {
   CephContext *cct = m_image_ctx.cct;
   FUNCTRACE(cct);
   ZTracer::Trace trace;
@@ -397,9 +397,9 @@ void ImageRequestWQ<I>::aio_flush(AioCompletion *c, bool native_async) {
   RWLock::RLocker owner_locker(m_image_ctx.owner_lock);
   if (m_image_ctx.non_blocking_aio || writes_blocked() || !writes_empty()) {
     queue(ImageDispatchSpec<I>::create_flush_request(
-            m_image_ctx, c, FLUSH_SOURCE_USER, trace));
+            m_image_ctx, c, flush_source, trace));
   } else {
-    ImageRequest<I>::aio_flush(&m_image_ctx, c, FLUSH_SOURCE_USER, trace);
+    ImageRequest<I>::aio_flush(&m_image_ctx, c, flush_source, trace);
     finish_in_flight_io();
   }
   trace.event("finish");
@@ -584,7 +584,7 @@ void ImageRequestWQ<I>::wait_on_writes_unblocked(Context *on_unblocked) {
 template <typename I>
 void ImageRequestWQ<I>::set_require_lock(Direction direction, bool enabled) {
   CephContext *cct = m_image_ctx.cct;
-  ldout(cct, 20) << dendl;
+  ldout(cct, 20) << "direction: " << direction << " enabled: " << enabled << dendl;
 
   bool wake_up = false;
   {

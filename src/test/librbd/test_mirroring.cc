@@ -51,6 +51,14 @@ public:
 
   std::string image_name = "mirrorimg1";
 
+  bool is_rbd_rwl_enabled() {
+#if defined(WITH_RWL)
+    return is_feature_enabled(RBD_FEATURE_IMAGE_CACHE);
+#else
+    return false;
+#endif //defined(WITH_RWL)
+  }
+
   void check_mirror_image_enable(rbd_mirror_mode_t mirror_mode,
                                  uint64_t features,
                                  int expected_r,
@@ -307,6 +315,7 @@ TEST_F(TestMirroring, EnableImageMirror_In_MirrorModeImage) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_enable(RBD_MIRROR_MODE_IMAGE, features, 0,
       RBD_MIRROR_IMAGE_ENABLED);
 }
@@ -316,6 +325,7 @@ TEST_F(TestMirroring, EnableImageMirror_In_MirrorModePool) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_enable(RBD_MIRROR_MODE_POOL, features, -EINVAL,
       RBD_MIRROR_IMAGE_ENABLED);
 }
@@ -325,6 +335,7 @@ TEST_F(TestMirroring, EnableImageMirror_In_MirrorModeDisabled) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_enable(RBD_MIRROR_MODE_DISABLED, features, -EINVAL,
       RBD_MIRROR_IMAGE_DISABLED);
 }
@@ -334,6 +345,7 @@ TEST_F(TestMirroring, DisableImageMirror_In_MirrorModeImage) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_disable(RBD_MIRROR_MODE_IMAGE, features, 0,
       RBD_MIRROR_IMAGE_DISABLED);
 }
@@ -343,6 +355,7 @@ TEST_F(TestMirroring, DisableImageMirror_In_MirrorModePool) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_disable(RBD_MIRROR_MODE_POOL, features, -EINVAL,
       RBD_MIRROR_IMAGE_ENABLED);
 }
@@ -352,6 +365,7 @@ TEST_F(TestMirroring, DisableImageMirror_In_MirrorModeDisabled) {
   features |= RBD_FEATURE_OBJECT_MAP;
   features |= RBD_FEATURE_EXCLUSIVE_LOCK;
   features |= RBD_FEATURE_JOURNALING;
+  REQUIRE(!is_rbd_rwl_enabled());
   check_mirror_image_disable(RBD_MIRROR_MODE_DISABLED, features, -EINVAL,
       RBD_MIRROR_IMAGE_DISABLED);
 }
@@ -660,6 +674,7 @@ TEST_F(TestMirroring, MirrorStatusList) {
 
 TEST_F(TestMirroring, RemoveBootstrapped)
 {
+  REQUIRE(!is_rbd_rwl_enabled());
   ASSERT_EQ(0, m_rbd.mirror_mode_set(m_ioctx, RBD_MIRROR_MODE_POOL));
 
   uint64_t features = RBD_FEATURE_EXCLUSIVE_LOCK | RBD_FEATURE_JOURNALING;
@@ -761,6 +776,7 @@ TEST_F(TestMirroring, AioPromoteDemote) {
 }
 
 TEST_F(TestMirroring, AioGetInfo) {
+  REQUIRE(!is_rbd_rwl_enabled());
   std::list<std::string> image_names;
   for (size_t idx = 0; idx < 10; ++idx) {
     image_names.push_back(get_temp_image_name());
@@ -806,6 +822,7 @@ TEST_F(TestMirroring, AioGetInfo) {
 }
 
 TEST_F(TestMirroring, AioGetStatus) {
+  REQUIRE(!is_rbd_rwl_enabled());
   std::list<std::string> image_names;
   for (size_t idx = 0; idx < 10; ++idx) {
     image_names.push_back(get_temp_image_name());

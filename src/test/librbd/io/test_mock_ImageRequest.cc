@@ -97,6 +97,10 @@ struct TestMockIoImageRequest : public TestMockFixture {
                 }));
   }
 
+  void expect_user_flushed(MockImageCtx &mock_image_ctx) {
+    EXPECT_CALL(mock_image_ctx, user_flushed());
+  }
+
   void expect_flush_async_operations(MockImageCtx &mock_image_ctx, int r) {
     EXPECT_CALL(mock_image_ctx, flush_async_operations(_))
       .WillOnce(CompleteContext(r, mock_image_ctx.image_ctx->op_work_queue));

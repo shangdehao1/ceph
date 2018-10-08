@@ -348,4 +348,7 @@
 /* Define if seastar is available. */
 #cmakedefine HAVE_SEASTAR
 
+/* Define if RWL is enabled */
+#cmakedefine WITH_RWL
+
 #endif /* CONFIG_H */

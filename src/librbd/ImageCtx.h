@@ -29,6 +29,7 @@
 #include "cls/rbd/cls_rbd_client.h"
 #include "librbd/AsyncRequest.h"
 #include "librbd/Types.h"
+#include "librbd/cache/ImageCache.h"
 
 class CephContext;
 class ContextWQ;
@@ -47,7 +48,6 @@ namespace librbd {
   template <typename> class ObjectMap;
   template <typename> class Operations;
 
-  namespace cache { struct ImageCache; }
   namespace exclusive_lock { struct Policy; }
   namespace io {
   class AioCompletion;
@@ -143,7 +143,9 @@ namespace librbd {
 
     file_layout_t layout;
 
-    cache::ImageCache *image_cache = nullptr;
+    cls::rbd::ImageCacheState image_cache_state;
+    cache::ImageCache<ImageCtx> *image_cache = nullptr;
+    std::list<cache::ImageCache<ImageCtx>*> image_cache_layers; /* front layer on top */
 
     Readahead readahead;
     uint64_t total_bytes_read;
@@ -187,6 +189,15 @@ namespace librbd {
     uint64_t mirroring_replay_delay;
     uint64_t mtime_update_interval;
     uint64_t atime_update_interval;
+
+    bool rwl_enabled;
+    cls::rbd::ReplicatedWriteLogSpec *m_rwl_spec = nullptr;
+    bool rwl_remove_on_close;
+    bool rwl_log_stats_on_close;
+    bool rwl_log_periodic_stats;
+    bool rwl_invalidate_on_flush;
+    uint64_t rwl_size;
+    std::string rwl_path;
 
     LibrbdAdminSocketHook *asok_hook;
 

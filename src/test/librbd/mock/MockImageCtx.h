@@ -5,6 +5,8 @@
 #define CEPH_TEST_LIBRBD_MOCK_IMAGE_CTX_H
 
 #include "include/rados/librados.hpp"
+#include "cls/rbd/cls_rbd_types.h"
+#include "cls/rbd/cls_rbd_client.h"
 #include "test/librbd/mock/MockContextWQ.h"
 #include "test/librbd/mock/MockExclusiveLock.h"
 #include "test/librbd/mock/MockImageState.h"
@@ -13,6 +15,7 @@
 #include "test/librbd/mock/MockObjectMap.h"
 #include "test/librbd/mock/MockOperations.h"
 #include "test/librbd/mock/MockReadahead.h"
+#include "test/librbd/mock/cache/MockImageCache.h"
 #include "test/librbd/mock/io/MockImageRequestWQ.h"
 #include "test/librbd/mock/io/MockObjectDispatcher.h"
 #include "common/RWLock.h"
@@ -24,7 +27,6 @@
 
 namespace librbd {
 
-namespace cache { class MockImageCache; }
 namespace operation {
 template <typename> class ResizeRequest;
 }
@@ -270,6 +272,8 @@ struct MockImageCtx {
 
   file_layout_t layout;
 
+  cls::rbd::ImageCacheState image_cache_state;
+
   xlist<operation::ResizeRequest<MockImageCtx>*> resize_reqs;
   xlist<AsyncRequest<MockImageCtx>*> async_requests;
   std::list<Context*> async_requests_waiters;
@@ -306,6 +310,7 @@ struct MockImageCtx {
   bool ignore_migrating;
   uint64_t mtime_update_interval;
   uint64_t atime_update_interval;
+  cls::rbd::ReplicatedWriteLogSpec *m_rwl_spec = nullptr;
   bool cache;
 
   ConfigProxy config;

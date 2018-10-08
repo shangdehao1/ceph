@@ -66,7 +66,6 @@ public:
 
 protected:
   typedef std::list<ObjectDispatchSpec*> ObjectRequests;
-
   ImageCtxT &m_image_ctx;
   AioCompletion *m_aio_comp;
   Extents m_image_extents;

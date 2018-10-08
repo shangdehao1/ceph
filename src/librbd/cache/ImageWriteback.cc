@@ -18,6 +18,14 @@ namespace cache {
 
 template <typename I>
 ImageWriteback<I>::ImageWriteback(I &image_ctx) : m_image_ctx(image_ctx) {
+  CephContext *cct = m_image_ctx.cct;
+  ldout(cct, 3) << dendl;
+}
+
+template <typename I>
+ImageWriteback<I>::~ImageWriteback() {
+  CephContext *cct = m_image_ctx.cct;
+  ldout(cct, 3) << dendl;
 }
 
 template <typename I>
@@ -118,6 +126,14 @@ void ImageWriteback<I>::aio_compare_and_write(Extents &&image_extents,
                                          mismatch_offset, fadvise_flags, {});
   req.set_bypass_image_cache();
   req.send();
+}
+
+template <typename I>
+void ImageWriteback<I>::get_state(bool &clean, bool &empty, bool &present) {
+  /* ImageWriteback state is never persisted, but has to conform to ImageCache interface */
+  clean = true;    /* never dirty, no need to flush */
+  empty = true;    /* always empty, no need to invalidate */
+  present = false; /* never present, no storage to release */
 }
 
 } // namespace cache
