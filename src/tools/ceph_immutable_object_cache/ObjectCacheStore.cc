@@ -2,6 +2,10 @@
 // vim: ts=8 sw=2 smarttab
 
 #include "ObjectCacheStore.h"
+#include "include/Context.h"
+#include "librbd/Utils.h"
+#include <condition_variable> 
+#include <mutex>
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_immutable_obj_cache
@@ -53,6 +57,9 @@ int ObjectCacheStore::init(bool reset) {
   return ret;
 }
 
+// return 0  : intiating async promoting success.
+// return -1 : intiating async promoting fails.
+// when data is in promoting proccess, the corresponding data will be read from rados layer.
 int ObjectCacheStore::do_promote(std::string pool_name, std::string object_name) {
   int ret = 0;
   std::string cache_file_name =  pool_name + object_name;
@@ -63,7 +70,7 @@ int ObjectCacheStore::do_promote(std::string pool_name, std::string object_name)
     ret = m_rados->ioctx_create(pool_name.c_str(), *io_ctx);
     if (ret < 0) {
       lderr(m_cct) << "fail to create ioctx" << dendl;
-      assert(0);
+      assert(0); // TODO 
     }
     m_ioctxs.emplace(pool_name, io_ctx); 
   }
@@ -75,44 +82,56 @@ int ObjectCacheStore::do_promote(std::string pool_name, std::string object_name)
   librados::bufferlist* read_buf = new librados::bufferlist();
   int object_size = 4096*1024; //TODO(): read config from image metadata
 
-  //TODO(): async promote
-  ret = promote_object(ioctx, object_name, read_buf, object_size);
-  if (ret == -ENOENT) {
-    read_buf->append(std::string(object_size, '0'));
-    ret = 0;
-  }
+  // rados thread to execute this callback. 
+  auto promote_callback = new FunctionContext([this, read_buf, pool_name, 
+                                cache_file_name, object_size](int ret) {
 
-  if( ret < 0) {
-    lderr(m_cct) << "fail to read from rados" << dendl;
-    return ret;
-  }
+    librados::IoCtx* ioctx = m_ioctxs[pool_name];
+    if (ret == -ENOENT) {
+      read_buf->append(std::string(object_size, '0'));
+      ret = 0;
+    }
+    if( ret < 0) {
+      lderr(m_cct) << "fail to read from rados" << dendl;
+      return ret;
+    }
 
-  // persistent to cache
-  librbd::cache::SyncFile cache_file(m_cct, cache_file_name);
-  cache_file.open();
-  ret = cache_file.write_object_to_file(*read_buf, object_size);
-  
-  // update metadata
-  assert(OBJ_CACHE_PROMOTING == m_policy->get_status(cache_file_name));
-  m_policy->update_status(cache_file_name, OBJ_CACHE_PROMOTED);
-  assert(OBJ_CACHE_PROMOTED == m_policy->get_status(cache_file_name));
+    // TODO : if these operation is heavy workloads, do it influence rados thread ?
+    // persistent to cache
+    librbd::cache::SyncFile cache_file(m_cct, cache_file_name);
+    cache_file.open();
+    ret = cache_file.write_object_to_file(*read_buf, object_size);
+    
+    // update metadata
+    assert(OBJ_CACHE_PROMOTING == m_policy->get_status(cache_file_name));
+    m_policy->update_status(cache_file_name, OBJ_CACHE_PROMOTED);
+    assert(OBJ_CACHE_PROMOTED == m_policy->get_status(cache_file_name));
+   });
 
-  return ret;
-
+   // async promoting data from ceph to bufferlist
+   ret =  promote_object(ioctx, object_name, read_buf, object_size, promote_callback);
+   return ret; 
 }
  
 // return -1, client need to read data from cluster.
 // return 0,  client directly read data from cache.
 int ObjectCacheStore::lookup_object(std::string pool_name, std::string object_name) {
-
-  std::string cache_file_name =  pool_name + object_name;
-
+  int promoting_ret;
   CACHESTATUS ret;
-  ret = m_policy->lookup_object(cache_file_name);
+
+  ret = m_policy->lookup_object(pool_name + object_name);
 
   switch(ret) {
     case OBJ_CACHE_NONE:
-      return do_promote(pool_name, object_name);
+      // TODO async 
+      promoting_ret = do_promote(pool_name, object_name);
+      if(promoting_ret < 0) {
+        std::cout << "intiating async promoting: fails." << std::endl;
+        assert(0); // TODO
+      } else { 
+        std::cout << "intiating async promoting: success." << std::endl;
+      }
+      return -1;
     case OBJ_CACHE_PROMOTED:
       return 0;
     case OBJ_CACHE_PROMOTING:
@@ -148,6 +167,25 @@ int ObjectCacheStore::lock_cache(std::string vol_name) {
   return 0;
 }
 
+int ObjectCacheStore::promote_object(librados::IoCtx* ioctx, std::string object_name, 
+                                     librados::bufferlist* read_buf, uint64_t read_len,
+                                     Context* on_finish) {
+  int ret; 
+  auto ctx = new FunctionContext([on_finish](int ret) {
+    std::cout << " promote done..." << ret << std::endl;
+    on_finish->complete(ret);
+  });
+
+  librados::AioCompletion* read_completion = librbd::util::create_rados_callback(ctx);
+  ret = ioctx->aio_read(object_name, read_completion, read_buf, read_len, 0);
+  if(ret < 0) {
+    lderr(m_cct) << "fail to read from rados" << dendl;
+    return ret;
+  }
+  return 0;
+}
+
+/*
 int ObjectCacheStore::promote_object(librados::IoCtx* ioctx, std::string object_name, librados::bufferlist* read_buf, uint64_t read_len) {
   int ret;
 
@@ -163,6 +201,7 @@ int ObjectCacheStore::promote_object(librados::IoCtx* ioctx, std::string object_
   return ret;
   
 }
+*/
 
 int ObjectCacheStore::evict_objects() {
   std::list<std::string> obj_list;
