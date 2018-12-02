@@ -1,6 +1,3 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
-// vim: ts=8 sw=2 smarttab
-
 #ifndef CEPH_LIBRBD_CACHE_REPLICATED_WRITE_LOG
 #define CEPH_LIBRBD_CACHE_REPLICATED_WRITE_LOG
 
@@ -200,10 +197,11 @@ typedef std::list<std::shared_ptr<WriteLogEntry>> WriteLogEntries;
 typedef std::list<std::shared_ptr<GenericLogEntry>> GenericLogEntries;
 typedef std::vector<std::shared_ptr<GenericLogEntry>> GenericLogEntriesVector;
 
-/**** Write log entries end ****/
+// ================== Write log entries end ========================
 
 template <typename T>
-class SyncPoint {
+class SyncPoint 
+{
 public:
   T &rwl;
   std::shared_ptr<SyncPointLogEntry> log_entry;
@@ -211,39 +209,60 @@ public:
   std::shared_ptr<SyncPoint<T>> earlier_sync_point; /* NULL if earlier has completed */
   std::shared_ptr<SyncPoint<T>> later_sync_point;
   uint64_t m_final_op_sequence_num = 0;
-  /* A sync point can't appear in the log until all the writes bearing
-   * it and all the prior sync points have been appended and
-   * persisted.
+
+  /* 
+   * A sync point can't appear in the log until all the writes bearing
+   * it and all the prior sync points have been appended and persisted.
    *
    * Writes bearing this sync gen number and the prior sync point will be
    * sub-ops of this Gather. This sync point will not be appended until all
-   * these complete to the point where their persist order is guaranteed. */
+   * these complete to the point where their persist order is guaranteed. 
+   */
+
+  /*  if current sync_point be appended, need to meet two situations as following: 
+   *  1 : all write operation which own this sync_point must have been appended and persisted.
+   *  2 : all the prior sync points have been appended and persisted. 
+   */
   C_Gather *m_prior_log_entries_persisted;
+
   int m_prior_log_entries_persisted_result = 0;
   int m_prior_log_entries_persisted_complete = false;
-  /* The finisher for this will append the sync point to the log.  The finisher
-   * for m_prior_log_entries_persisted will be a sub-op of this. */
+
+  /* 
+   * The finisher for this will append the sync point to the log.  
+   * The finisher for m_prior_log_entries_persisted will be a sub-op of this. 
+   */
   C_Gather *m_sync_point_persist;
+
   bool m_append_scheduled = false;
   bool m_appending = false;
-  /* Signal these when this sync point is appending to the log, and its order
+  /* 
+   * Signal these when this sync point is appending to the log, and its order
    * of appearance is guaranteed. One of these is is a sub-operation of the
-   * next sync point's m_prior_log_entries_persisted Gather. */
+   * next sync point's m_prior_log_entries_persisted Gather. 
+   */
   std::vector<Context*> m_on_sync_point_appending;
-  /* Signal these when this sync point is appended and persisted. User
-   * aio_flush() calls are added to this. */
+
+  /* 
+   * Signal these when this sync point is appended and persisted. 
+   *
+   * User aio_flush() calls are added to this. 
+   */
   std::vector<Context*> m_on_sync_point_persisted;
 
   SyncPoint(T &rwl, const uint64_t sync_gen_num);
   ~SyncPoint();
+
   SyncPoint(const SyncPoint&) = delete;
   SyncPoint &operator=(const SyncPoint&) = delete;
+
   std::ostream &format(std::ostream &os) const;
-  friend std::ostream &operator<<(std::ostream &os,
-				  const SyncPoint &p) {
+  friend std::ostream &operator<<(std::ostream &os, const SyncPoint &p) {
     return p.format(os);
   }
 };
+
+// ============= operation ==================
 
 template <typename T>
 class WriteLogOperationSet;
@@ -261,7 +280,8 @@ template <typename T>
 class DiscardLogOperation;
 
 template <typename T>
-class GenericLogOperation {
+class GenericLogOperation 
+{
 public:
   T &rwl;
   utime_t m_dispatch_time;         // When op created
@@ -299,6 +319,7 @@ public:
   virtual bool is_writesame() { return false; }
   virtual bool is_writing_op() { return false; }
   virtual GeneralWriteLogOperation<T> *get_gen_write_op() { return nullptr; };
+  // ##
   virtual WriteLogOperation<T> *get_write_op() { return nullptr; };
 };
 
@@ -306,7 +327,8 @@ template <typename T>
 class SyncPointLogOperation;
 
 template <typename T>
-class SyncPointLogOperation : public GenericLogOperation<T> {
+class SyncPointLogOperation : public GenericLogOperation<T> 
+{
 public:
   using GenericLogOperation<T>::rwl;
   std::shared_ptr<SyncPoint<T>> sync_point;
@@ -335,7 +357,8 @@ public:
 };
 
 template <typename T>
-class GeneralWriteLogOperation : public GenericLogOperation<T> {
+class GeneralWriteLogOperation : public GenericLogOperation<T> 
+{
 private:
   friend class WriteLogOperation<T>;
   friend class DiscardLogOperation<T>;
@@ -369,7 +392,8 @@ public:
 };
 
 template <typename T>
-class WriteLogOperation : public GeneralWriteLogOperation<T> {
+class WriteLogOperation : public GeneralWriteLogOperation<T> 
+{
 public:
   using GenericLogOperation<T>::rwl;
   using GeneralWriteLogOperation<T>::m_lock;
@@ -377,17 +401,18 @@ public:
   using GeneralWriteLogOperation<T>::on_write_append;
   using GeneralWriteLogOperation<T>::on_write_persist;
   std::shared_ptr<WriteLogEntry> log_entry;
-  bufferlist bl;
+  bufferlist bl; //  <-----
   WriteBufferAllocation *buffer_alloc = nullptr;
   WriteLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes, const uint64_t write_bytes);
   ~WriteLogOperation();
   WriteLogOperation(const WriteLogOperation&) = delete;
   WriteLogOperation &operator=(const WriteLogOperation&) = delete;
   std::ostream &format(std::ostream &os) const;
-  friend std::ostream &operator<<(std::ostream &os,
-				  const WriteLogOperation<T> &op) {
+
+  friend std::ostream &operator<<(std::ostream &os, const WriteLogOperation<T> &op) {
     return op.format(os);
   }
+
   const std::shared_ptr<GenericLogEntry> get_log_entry() { return get_write_log_entry(); }
   const std::shared_ptr<WriteLogEntry> get_write_log_entry() { return log_entry; }
   WriteLogOperation<T> *get_write_op() override { return this; }
@@ -395,7 +420,8 @@ public:
 };
 
 template <typename T>
-class WriteSameLogOperation : public WriteLogOperation<T> {
+class WriteSameLogOperation : public WriteLogOperation<T> 
+{
 public:
   using GenericLogOperation<T>::rwl;
   using GeneralWriteLogOperation<T>::m_lock;
@@ -428,7 +454,8 @@ public:
 };
 
 template <typename T>
-class DiscardLogOperation : public GeneralWriteLogOperation<T> {
+class DiscardLogOperation : public GeneralWriteLogOperation<T> 
+{
 public:
   using GenericLogOperation<T>::rwl;
   using GeneralWriteLogOperation<T>::m_lock;
@@ -472,28 +499,33 @@ using WriteLogOperations = std::list<WriteLogOperationSharedPtr<T>>;
 template <typename T>
 using WriteSameLogOperationSharedPtr = std::shared_ptr<WriteSameLogOperation<T>>;
 
+// ====================================================
+
 template <typename T>
-class WriteLogOperationSet {
+class WriteLogOperationSet 
+{
 public:
   T &rwl;
   BlockExtent m_extent; /* in blocks */
-  Context *m_on_finish;
+  Context *m_on_finish; // rwl::m_on_persist_finisher
   bool m_persist_on_flush;
   BlockGuardCell *m_cell;
-  C_Gather *m_extent_ops_appending;
+  C_Gather *m_extent_ops_appending; // --> 
   Context *m_on_ops_appending;
-  C_Gather *m_extent_ops_persist;
+  C_Gather *m_extent_ops_persist; // --> 
   Context *m_on_ops_persist;
-  GenericLogOperationsVector<T> operations;
-  utime_t m_dispatch_time; /* When set created */
-  std::shared_ptr<SyncPoint<T>> sync_point;
+  GenericLogOperationsVector<T> operations; // --> setup_log_operation 
+  utime_t m_dispatch_time; // When set created 
+  std::shared_ptr<SyncPoint<T>> sync_point; // --> ##
+
   WriteLogOperationSet(T &rwl, const utime_t dispatched, std::shared_ptr<SyncPoint<T>> sync_point,
 		       const bool persist_on_flush, BlockExtent extent, Context *on_finish);
+
   ~WriteLogOperationSet();
   WriteLogOperationSet(const WriteLogOperationSet&) = delete;
   WriteLogOperationSet &operator=(const WriteLogOperationSet&) = delete;
-  friend std::ostream &operator<<(std::ostream &os,
-				  const WriteLogOperationSet<T> &s) {
+
+  friend std::ostream &operator<<(std::ostream &os, const WriteLogOperationSet<T> &s) {
     os << "m_extent=[" << s.m_extent.block_start << "," << s.m_extent.block_end << "] "
        << "m_on_finish=" << s.m_on_finish << ", "
        << "m_cell=" << (void*)s.m_cell << ", "
@@ -503,7 +535,8 @@ public:
   };
 };
 
-struct BlockGuardReqState {
+struct BlockGuardReqState 
+{
   bool barrier = false; /* This is a barrier request */
   bool current_barrier = false; /* This is the currently active barrier */
   bool detained = false;
@@ -518,7 +551,8 @@ struct BlockGuardReqState {
   };
 };
 
-class GuardedRequestFunctionContext : public Context {
+class GuardedRequestFunctionContext : public Context 
+{
 private:
   boost::function<void(GuardedRequestFunctionContext&)> m_callback;
   void finish(int r) override;
@@ -531,15 +565,16 @@ public:
   GuardedRequestFunctionContext &operator=(const GuardedRequestFunctionContext&) = delete;
 };
 
-struct GuardedRequest {
+struct GuardedRequest 
+{
   const BlockExtent block_extent;
   GuardedRequestFunctionContext *guard_ctx; /* Work to do when guard on range obtained */
 
-  GuardedRequest(const BlockExtent block_extent,
-		 GuardedRequestFunctionContext *on_guard_acquire, bool barrier = false)
+  GuardedRequest(const BlockExtent block_extent, GuardedRequestFunctionContext *on_guard_acquire, bool barrier = false)
     : block_extent(block_extent), guard_ctx(on_guard_acquire) {
     guard_ctx->m_state.barrier = barrier;
   }
+
   friend std::ostream &operator<<(std::ostream &os,
 				  const GuardedRequest &r) {
     os << "guard_ctx->m_state=[" << r.guard_ctx->m_state << "], "
@@ -581,12 +616,12 @@ struct C_WriteSameRequest;
 template <typename T>
 struct C_CompAndWriteRequest;
 
-/**
- * Prototype pmem-based, client-side, replicated write log
- */
+// Prototype pmem-based, client-side, replicated write log
 class ReplicatedWriteLogInternal;
+
 template <typename ImageCtxT>
-class ReplicatedWriteLog : public ImageCache<ImageCtxT> {
+class ReplicatedWriteLog : public ImageCache<ImageCtxT> 
+{
 public:
   using typename ImageCache<ImageCtxT>::Extent;
   using typename ImageCache<ImageCtxT>::Extents;
@@ -607,24 +642,20 @@ public:
   using C_DiscardRequestT = C_DiscardRequest<This>;
   using C_WriteSameRequestT = C_WriteSameRequest<This>;
   using C_CompAndWriteRequestT = C_CompAndWriteRequest<This>;
+
   ReplicatedWriteLog(ImageCtx &image_ctx, ImageCache<ImageCtxT> *lower);
   ~ReplicatedWriteLog();
+
   ReplicatedWriteLog(const ReplicatedWriteLog&) = delete;
   ReplicatedWriteLog &operator=(const ReplicatedWriteLog&) = delete;
 
   /// client AIO methods
-  void aio_read(Extents&& image_extents, ceph::bufferlist *bl,
-		int fadvise_flags, Context *on_finish) override;
-  void aio_write(Extents&& image_extents, ceph::bufferlist&& bl,
-		 int fadvise_flags, Context *on_finish) override;
-  void aio_discard(uint64_t offset, uint64_t length,
-		   bool skip_partial_discard, Context *on_finish);
+  void aio_read(Extents&& image_extents, ceph::bufferlist *bl, int fadvise_flags, Context *on_finish) override;
+  void aio_write(Extents&& image_extents, ceph::bufferlist&& bl, int fadvise_flags, Context *on_finish) override;
+  void aio_discard(uint64_t offset, uint64_t length, bool skip_partial_discard, Context *on_finish);
   void aio_flush(Context *on_finish) override;
-  void aio_writesame(uint64_t offset, uint64_t length,
-		     ceph::bufferlist&& bl,
-		     int fadvise_flags, Context *on_finish) override;
-  void aio_compare_and_write(Extents&& image_extents,
-			     ceph::bufferlist&& cmp_bl, ceph::bufferlist&& bl,
+  void aio_writesame(uint64_t offset, uint64_t length, ceph::bufferlist&& bl, int fadvise_flags, Context *on_finish) override;
+  void aio_compare_and_write(Extents&& image_extents, ceph::bufferlist&& cmp_bl, ceph::bufferlist&& bl,
 			     uint64_t *mismatch_offset,int fadvise_flags,
 			     Context *on_finish) override;
 
@@ -666,6 +697,7 @@ private:
   std::atomic<bool> m_initialized = {false};
   std::atomic<bool> m_shutting_down = {false};
   std::atomic<bool> m_invalidating = {false};
+
   ReplicatedWriteLogInternal *m_internal;
   const char* rwl_pool_layout_name;
 
@@ -759,6 +791,10 @@ private:
   Finisher m_on_persist_finisher;
 
   GenericLogOperationsT m_ops_to_flush; /* Write ops needing flush in local log */
+
+  // namely , std::list<GenericLogOperation*>
+  // add : schedule_append
+  // delete : append_scheduled_ops
   GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
 
   WriteLogMap m_blocks_to_log_entries;
@@ -823,15 +859,23 @@ private:
   void release_write_lanes(C_WriteRequestT *write_req);
   void alloc_and_dispatch_io_req(C_BlockIORequestT *write_req);
   void append_scheduled_ops(void);
-  void enlist_op_appender();
-  void schedule_append(GenericLogOperationsVectorT &ops);
+
+  void enlist_op_appender(); //  enqueue flush_then_append_scheuled_ops work queue...sdh
+
+  void schedule_append(GenericLogOperationsVectorT &ops); // rwl will take custody of ops, then put them into m_ops_to_append...sdh
   void schedule_append(GenericLogOperationsT &ops);
   void schedule_append(GenericLogOperationSharedPtrT op);
+
   void flush_then_append_scheduled_ops(void);
+
   void enlist_op_flusher();
+
   void schedule_flush_and_append(GenericLogOperationsVectorT &ops);
+
+  //  Flush the pmem regions for the data blocks of a set of operations
   template <typename V>
-  void flush_pmem_buffer(V& ops);
+  void flush_pmem_buffer(V& ops); // flush pmem region : WriteLogEntry.pmem_buffer --> pmem ...sdh
+
   void alloc_op_log_entries(GenericLogOperationsT &ops);
   void flush_op_log_entries(GenericLogOperationsVectorT &ops);
   int append_op_log_entries(GenericLogOperationsT &ops);

@@ -1,0 +1,312 @@
+
+
+
+
+
+
+ImageStore
+    |
+MetaStore
+    |
+AioFile<ImageCtx>
+
+
+
+
+JounalStore
+    |
+  MetaStore
+    |
+AioFile
+
+
+
+========================================
+
+ImageCache --> ImageWriteBack       
+           --> FileImageCache    
+           --> ReplicatedWriteLog
+
+
+=========================================
+
+ImageCache
+    |
+ImageWriteBack
+  |
+  --> FileImageCache
+        |
+        --> ReplicatedWriteLOg
+              |
+              --> FileImageCache 
+                    |  
+                    --> BlockGuard m_block_guard 
+                    --> namespace::file
+                         |
+                         --> Policy --> StupidPolicy
+                         --> MetaStore 
+                         --> JournalStore
+                         --> ImageStore 
+                               |
+                               --> AioFile (own)           --> namely, m_metastore
+                               --> MetaStore (last layer)  --> namely, m_cache_file
+                 
+
+
+
+
+================== send message =====================
+================== aio write ========================
+
+
+
+ImageRequest::send()
+        |
+        | (m_bypass_image_cache || m_image_ctx.image_cache == nullptr
+        |
+       / \
+      /   \
+     /     \
+   true   false
+    |       |
+   (1)     (2)
+
+
+(1)
+    send_request()
+        |
+AbstractImageWriteRequest::send_request() 
+        |
+ Striper::file_to_extents
+        |
+AbstractImageWriteRequest::send_object_requests --> (1-2)
+        |
+ image_ctx.object_cacher != NULL --> if false, return.
+        |
+ send_object_cache_requests
+        |
+ ImageCtx.ObjectCache::discard_set(image_ctx.object_set, object_extents)
+
+
+(1-2)
+    ObjectRequestHandle* req = create_object_request()
+    
+
+
+(2)
+    ImageWriteRequest::send_image_cache_request()
+                        |
+     image_ctx->image_cache->aio_write(0
+                        |
+        pure virtual: ImageCache::aio_write
+                        |
+        ->  ReplicatedWriteLog::aio_write --> (2-1)
+        ->  FileImageCache::aio_write     --> (2-2)
+        ->  ImageWriteBack::aio_write     --> (2-3)
+            
+(2-1):
+    write_req = new C_WriteRequest(...)
+    guarded_ctx = new GuardedRequestFunctionContext(..., write_req, ...)
+    
+    xx = GuardedRequest(guarded_ctx, ..)
+    detain_guarded_request(xx)
+    
+    detain_guared_request_barrier_helper(req)
+    
+    detain_guarded_request_helper
+    
+    m_write_log_guard.detain, namely WriteLogGuard.detain()
+
+    namely: BlockGuard<GuardedRequest>.detain()
+
+    BlockGuard::detain()
+    
+    BlockGuard::block_ios.emplace_back(block_io)
+    namely, list<BlockIO> block_ios; block_ios.push_back(block_io);
+
+    
+    
+(2-2)
+    
+    req = new C_WriteBlockRequest<I>(....) 
+    map_blocks(IO_TYPE_WRITE, ... , req)
+                    |
+                    | 1->n
+                    |
+        BlockGuard::BlockIOs block_ios; 
+        m_block_guard.create_block_ios(..., block_ios, ...) 
+                    |
+            for(auto block_io : block_ios) 
+                map_block(true, block_io)   --> ????
+                    |
+                m_policy->tick()
+                    |
+             block_request->activate()
+
+
+
+
+
+
+
+============ request ======================================
+
+Context
+std::enable_shared_from_this<SharedPtrContext>
+  |  
+  --> SharedPtrContext
+        |
+        --> ExamplePtrContext
+        |
+        --> C_GuardedBlockIORequest
+              |
+              --> C_BlockIORequest
+                    |
+                    --> C_DiscardRequest
+                    |
+                    --> C_FlushRequest
+                    |
+                    --> C_WriteRequest
+                          |
+                          --> C_WriteSameRequest
+                          |
+                          --> C_CompAndWriteRequest
+
+
+Context
+  |
+  --> C_ReadRequest
+
+
+
+==================== operation =============================================
+
+
+GenericLogOperation
+  |
+  --> SyncPointLogOperation
+  |                       
+  |
+  --> GenericWriteLogOperation
+        |
+        --> DiscardLogOperation
+        |
+        --> WriteLogOperation
+              |
+              --> WriteSameLogOperation
+
+
+===================== log entry ================================================
+
+
+GenericLogEntry  ---> wrapper WriteLogPmemEntry
+  |
+  --> SyncPointLogEntry 
+  |
+  --> GeneralWriteLogEntry
+        |
+        --> DiscardLogEntry
+        |
+        --> WriteLogEntry
+             |
+             --> WriteSameLogEntry
+      
+
+
+======================= Resource =======================================================
+
+C_WriteRequest
+  |
+  --> WriteRequestResource
+        |
+        | vector
+        |
+        ---> WriteBufferAllocation  
+                |
+                -->unsigned int allocation_size = 0;
+                |
+                -->pobj_action buffer_alloc_action;
+                |
+                -->TOID(uint8_t) buffer_oid = OID_NULL;
+                |
+                -->bool allocated = false;
+                |
+                -->utime_t allocation_lat;
+
+
+
+=========================================================================
+
+SyncPoint
+  |
+  | M
+  |
+  --> SyncPointLogEntry
+
+
+
+============================ write flow ========================================
+
+
+
+
+
+
+
+
+alloc_and_dispatch_io_req 
+     |
+C_BlockIORequest->alloc_resource()
+   |
+   --> flow (1) : C_BlockIORequest->dispatch
+   --> flow (2) : dispatch_deferred_write()
+     
+
+
+--------------------------------------------C_WriteRequest
+  dispatch
+     | 
+     |  
+     |
+ schedule_append
+     |
+ m_do_earler_flush -------------------
+     |                               |
+     | true                          | false
+     |                               |
+rwl::flush_pmem_buffer        rwl::shedule_flush_and_append
+rwl::shedule_append                  |
+     |                               |
+----------------------------------------------------------- switch to rwl     
+     |                               |
+
+enlist_ops_append --> enqueue work queue --> xxx
+op->appending 
+     |
+GeneralWriteLogOperation::appending  --> /* Called when the write log operation is appending and its log position is guaranteed */
+     
+xxx --> append_scheduled_ops  --> Performs the log event append operation for all of the scheduled events
+    | 
+alloc_op_log_entries(ops); --> yyy -->  Allocate the (already reserved) write log entries for a set of operations.
+append_op_log_entries(ops); --> zzz -->  Write and persist the (already allocated) write log entries and
+                                         data buffer allocations for a set of ops. The data buffer for each
+                                         of these must already have been persisted to its reserved area.
+complete_op_log_entries  --> New entries may be flushable. Completion will wake up flusher.  
+
+
+zzz --> flush_op_log_entries  --> Flush the persistent write log entries set of ops. The entries must
+                                  be contiguous in persistent memory.
+             
+  
+
+===========================================================================
+
+C_WriteRequest
+  |
+  --> 
+
+
+
+
+
+

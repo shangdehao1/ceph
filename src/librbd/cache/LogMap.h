@@ -196,12 +196,13 @@ template <typename T, typename T_S>
 void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
   LogMapEntry<T> map_entry(log_entry);
   if (LOGMAP_VERBOSE_LOGGING) {
-    ldout(m_cct, 20) << "block_extent=" << map_entry.block_extent
-		     << dendl;
+    ldout(m_cct, 20) << "block_extent=" << map_entry.block_extent << dendl;
   }
+
   assert(m_lock.is_locked_by_me());
   assert(log_entry->is_writer());
   LogMapEntries<T> overlap_entries = find_map_entries_locked(map_entry.block_extent);
+
   if (overlap_entries.size()) {
     for (auto &entry : overlap_entries) {
       if (LOGMAP_VERBOSE_LOGGING) {
@@ -234,6 +235,7 @@ void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
       }
     }
   }
+
   add_map_entry_locked(map_entry);
 }
 
