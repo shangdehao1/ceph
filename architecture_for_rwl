@@ -1,26 +1,3 @@
-
-
-
-
-
-
-ImageStore
-    |
-MetaStore
-    |
-AioFile<ImageCtx>
-
-
-
-
-JounalStore
-    |
-  MetaStore
-    |
-AioFile
-
-
-
 ========================================
 
 ImageCache --> ImageWriteBack       
@@ -50,15 +27,15 @@ ImageWriteBack
                                |
                                --> AioFile (own)           --> namely, m_metastore
                                --> MetaStore (last layer)  --> namely, m_cache_file
-                 
+
+====================== Gather ========================
+
+typedef C_GatherBase<Context, Context> C_Gather;
 
 
 
 
-================== send message =====================
 ================== aio write ========================
-
-
 
 ImageRequest::send()
         |
@@ -144,12 +121,7 @@ AbstractImageWriteRequest::send_object_requests --> (1-2)
              block_request->activate()
 
 
-
-
-
-
-
-============ request ======================================
+============ rwl's request ======================================
 
 Context
 std::enable_shared_from_this<SharedPtrContext>
@@ -178,15 +150,12 @@ Context
   --> C_ReadRequest
 
 
-
-==================== operation =============================================
-
+==================== rwl's operation =============================================
 
 GenericLogOperation
   |
   --> SyncPointLogOperation
   |                       
-  |
   --> GenericWriteLogOperation
         |
         --> DiscardLogOperation
@@ -196,12 +165,12 @@ GenericLogOperation
               --> WriteSameLogOperation
 
 
-===================== log entry ================================================
+===================== rwl's log entry ================================================
 
 
-GenericLogEntry  ---> wrapper WriteLogPmemEntry
-  |
-  --> SyncPointLogEntry 
+GenericLogEntry  -----------------------------------------------> in-mem : WriteLogPmemEntry copy version.
+  |                                                          |
+  --> SyncPointLogEntry                                      ---> pmem   : one refference which point to persistent memory's WriteLogPmemEntry
   |
   --> GeneralWriteLogEntry
         |
@@ -213,7 +182,7 @@ GenericLogEntry  ---> wrapper WriteLogPmemEntry
       
 
 
-======================= Resource =======================================================
+======================= rwl's Resource =======================================================
 
 C_WriteRequest
   |
@@ -227,13 +196,11 @@ C_WriteRequest
                 |
                 -->pobj_action buffer_alloc_action;
                 |
-                -->TOID(uint8_t) buffer_oid = OID_NULL;
+                -->TOID(uint8_t) buffer_oid = OID_NULL;   <----- ###
                 |
                 -->bool allocated = false;
                 |
                 -->utime_t allocation_lat;
-
-
 
 =========================================================================
 
@@ -247,29 +214,47 @@ SyncPoint
 
 ============================ write flow ========================================
 
-
-
-
-
-
-
-
-alloc_and_dispatch_io_req 
+                           ### TODO
+                            |
+      aio_write      flush_new_sync_point     aio_discard      aio_writesame   aio_compare_and_write
+         |                |                        |                 |                 |
+         | write_req      | flush_req              | discard_req     | ws_req          | cw_req
+         |                |                        |                 |                 |
+----------------------------------------------------------------------------------------------------------------                    
+|                                                                                                              |
+|              block_guarded_request                                                                           |
+|                                                                                                              |
+----------------------------------------------------------------------------------------------------------------
+                        |
+                        | C_BlockIORequest
+                        |
+     --------------------
      |
-C_BlockIORequest->alloc_resource()
-   |
-   --> flow (1) : C_BlockIORequest->dispatch
-   --> flow (2) : dispatch_deferred_write()
-     
-
-
---------------------------------------------C_WriteRequest
-  dispatch
-     | 
-     |  
+alloc_and_dispatch_io_req (xxx_req)
      |
+rwl.m_deffered_ios.emppty()  ------------------------------>
+   |                                    no                 |
+   | yes                                                   |
+   |                                              fails    |
+   --> == C_BlockIORequest->alloc_resource() == ---------->|
+           |                                               |
+           | success                                       |
+           |                                               |
+           --> == C_BlockIORequest->dispatch ==            |
+                            |                              ---> rwl.dispatch_deffered_write
+                            | 
+-------------------------------------------------------------------------------------------------
+       |                          |                         |
+  C_WriteRequest            C_FlushRequest          C_DiscardRequest        
+       |                          |                         |
+--------------------------------------------------------------------------------------------------
+       |                              
+       |                          
+       | 
+       |  
+       |
  schedule_append
-     |
+       |
  m_do_earler_flush -------------------
      |                               |
      | true                          | false
@@ -304,6 +289,153 @@ zzz --> flush_op_log_entries  --> Flush the persistent write log entries set of 
 C_WriteRequest
   |
   --> 
+
+====================== note ===============================
+
+how to judge current all clean : 
+
+
+
+
+
+
+
+
+
+
+How to flush all writes to OSD ?
+
+
+        
+        
+flush(...)
+  |
+internal_flush(on_finish, ....)
+  |
+  --> invadate_block_extent --> b_g_r = new GuardRequest 
+  |
+  --> detain_guard_request(b_g_r)
+  |
+  --> FunctionContext -->  flush_dirty_entries ----------------->-------------->-----------------------
+  |                                                                                                   |                                                  
+  --> FunctionContext : --> invadate                                                                  |                                  
+  |                           |                                                                       |                                  
+  |                           --> ture                                                                |                          
+  |                           |     |                                                                 |                                          
+  |                           |     --> retire_entries                                                |                                  
+  |                           |     |                                                                 |                                          
+  |                           |     --> m_image_writeback->invalidate                                 |                                          
+  |                           |                                                                       |                                                  
+  |                           --> false                                                               | flush all writes to OSD                         
+  |                                 |                                                                 |                          
+  |                                 --> m_image_writeback->flush                                      |                                                  
+  |                                                                                                   |                  
+  |                                                                                                   |                                                                          
+  --> FunctionContext --> release_guarded_request                                                     |                                  
+  |                                                                                                   |                                          
+  --> on_finish   <---- internal_flush's callback                                                     |                                                          
+                                                                                                      |              
+                                                                                                      |              
+  ------------<-------------------------<--------------------------------------<-----------------------                                                                                                                
+  |                                                                                                                                 
+flush_dirty_entries
+  |
+  |
+--------------------------------------------------------------     all clean
+| m_log_dirty_entries.empty() ||  m_flush_ops_in_flight == 0 | -----------------> flush over
+--------------------------------------------------------------
+  |
+  | dirty
+  |
+  --> m_flush_complete_contexts.push_back(flush_dirty_entries) 
+  | 
+  --> wakeup
+        |
+        --> m_work_queue.queue(process_work)
+                                    |
+   ----------------------------------
+   |   
+process_work
+   |
+   --> retire_entries              <--------- release log resources.
+   |
+   --> dispatch_deffered_writes    <------- if exist deferred write request, try to allocate resource, then dispatch it. 
+   |
+   --> process_writeback_dirty_entries
+         |
+         --> construct_flush_entry_ctx()
+                |
+                --> m_image_writeback->aio_write     --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
+                |
+                --> m_image_writeback->aio_writesame --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
+                |
+                --> m_image_writeback->aio_discard   --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
+                                                                                                                | 
+                                                                                                                | 
+   -------------------------------------------------------------------------------------------<------------------ 
+   | 
+   |
+sync_point_write_flushed  <------------ all writes flushed for this sync point 
+   |
+handle_flushed_sync_point 
+   |
+   --> persist_last_flushed_sync_gen      <----------------update the last flushed sync point in the log
+        | 
+        -->  D_RW(pool_root)->flushed_sync_gen = m_flushed_sync_gen;
+
+
+
+
+====================================================================================
+
+ init 
+  |
+  --> m_image_writeback->init
+  | 
+  --> rwl_init
+         |
+  --------
+  | 
+rwl_init
+  |
+  --> no pool fille 
+  |     |
+  |     --> transactionly alloc persistent space.
+  |
+  --> pool file exist
+  |     |
+  |     --> reload metadata from pmem, then store these metadata to RWL. 
+  |     |
+  |     --> load_existing_entries
+  |
+  |
+  --> init_flush_new_sync_point
+           | 
+           --> new_sync_point
+           | 
+           --> flush_new_sync_point
+
+
+
+======================================
+
+WriteRequestResources
+  |
+  --> WriteBufferAllocation
+        |
+        --> TOID(uint8_t) buffer_oid
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

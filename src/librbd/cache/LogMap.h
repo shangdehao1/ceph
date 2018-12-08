@@ -37,13 +37,11 @@ public:
   BlockExtent block_extent;
   std::shared_ptr<T> log_entry;
 
-  LogMapEntry(BlockExtent block_extent,
-	      std::shared_ptr<T> log_entry = nullptr);
+  LogMapEntry(BlockExtent block_extent, std::shared_ptr<T> log_entry = nullptr);
   LogMapEntry(std::shared_ptr<T> log_entry);
-  friend std::ostream &operator<<(std::ostream &os,
-				  LogMapEntry &e) {
-    os << "block_extent=" << e.block_extent << ", "
-       << "log_entry=[" << e.log_entry << "]";
+
+  friend std::ostream &operator<<(std::ostream &os, LogMapEntry &e) {
+    os << "block_extent=" << e.block_extent << ", " << "log_entry=[" << e.log_entry << "]";
     return os;
   };
 };
@@ -52,7 +50,8 @@ template <typename T>
 using LogMapEntries = std::list<LogMapEntry<T>>;
 
 template <typename T, typename T_S>
-class LogMap {
+class LogMap 
+{
 public:
   LogMap(CephContext *cct);
   LogMap(const LogMap&) = delete;
@@ -339,11 +338,14 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_exte
   if (LOGMAP_VERBOSE_LOGGING) {
     ldout(m_cct, 20) << "block_extent=" << block_extent << dendl;
   }
+
   assert(m_lock.is_locked_by_me());
+
   auto p = m_block_to_log_entry_map.equal_range(LogMapEntry<T>(block_extent));
   if (LOGMAP_VERBOSE_LOGGING) {
     ldout(m_cct, 20) << "count=" << std::distance(p.first, p.second) << dendl;
   }
+
   for ( auto i = p.first; i != p.second; ++i ) {
     LogMapEntry<T> entry = *i;
     overlaps.emplace_back(entry);
@@ -351,6 +353,7 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_exte
       ldout(m_cct, 20) << entry << dendl;
     }
   }
+
   return overlaps;
 }
 
@@ -373,8 +376,7 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_exte
  * that is less than the key).
  */
 template <typename T, typename T_S>
-bool LogMap<T, T_S>::LogMapEntryCompare::operator()(const LogMapEntry<T> &lhs,
-						    const LogMapEntry<T> &rhs) const {
+bool LogMap<T, T_S>::LogMapEntryCompare::operator()(const LogMapEntry<T> &lhs, const LogMapEntry<T> &rhs) const {
   if (lhs.block_extent.block_end < rhs.block_extent.block_start) {
     return true;
   }

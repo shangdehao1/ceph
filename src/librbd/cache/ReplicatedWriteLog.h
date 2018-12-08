@@ -154,6 +154,7 @@ typedef std::list<Context *> Contexts;
 typedef std::vector<Context*> ContextsV;
 
 static const uint32_t MIN_WRITE_ALLOC_SIZE = 512;
+
 /* Enables use of dedicated finishers for some RWL work */
 static const bool use_finishers = false;
 
@@ -797,11 +798,11 @@ private:
   // delete : append_scheduled_ops
   GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
 
-  WriteLogMap m_blocks_to_log_entries;
+  WriteLogMap m_blocks_to_log_entries;  // reading existing entries from pmem....sdh
 
   /* New entries are at the back. Oldest at the front */
   GenericLogEntries m_log_entries;
-  GenericLogEntries m_dirty_log_entries;
+  GenericLogEntries m_dirty_log_entries; // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
 
   int m_flush_ops_in_flight = 0;
   int m_flush_bytes_in_flight = 0;
@@ -823,8 +824,8 @@ private:
   ContextWQ m_work_queue;
 
   /* Returned by get_state() */
-  std::atomic<bool> m_clean = {false};
-  std::atomic<bool> m_empty = {false};
+  std::atomic<bool> m_clean = {false}; // whether exist ditry log entry. if don't dirty, true. m_dirty_log_entries decide this variable...sdh
+  std::atomic<bool> m_empty = {false}; // whether pmem have log entry, if don't have any log entry in PM, just true
   std::atomic<bool> m_present = {true};
 
   const Extent whole_volume_extent(void);
@@ -836,8 +837,9 @@ private:
 
   void rwl_init(Context *on_finish, DeferredContexts &later);
   void load_existing_entries(DeferredContexts &later);
-  void wake_up();
-  void process_work();
+
+  void wake_up(); // put "process_work" into work_queue....sdh
+  void process_work(); // 
 
   void flush_dirty_entries(Context *on_finish);
   bool can_flush_entry(const std::shared_ptr<GenericLogEntry> log_entry);
@@ -876,11 +878,23 @@ private:
   template <typename V>
   void flush_pmem_buffer(V& ops); // flush pmem region : WriteLogEntry.pmem_buffer --> pmem ...sdh
 
+// ===================================
+
+  // Allocate the (already reserved) write log entries for a set of operations.
   void alloc_op_log_entries(GenericLogOperationsT &ops);
+  // Flush the persistent write log entries set of ops. The entries must be contiguous in persistent memory.
   void flush_op_log_entries(GenericLogOperationsVectorT &ops);
+  /* Write and persist the (already allocated) write log entries and
+   * data buffer allocations for a set of ops. The data buffer for each
+   * of these must already have been persisted to its reserved area. */
   int append_op_log_entries(GenericLogOperationsT &ops);
+  /* Complete a set of write ops with the result of append_op_entries.*/
   void complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
+  /* Push op log entry completion to a WQ. */
   void schedule_complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
+
+// ===========================
+
   void internal_flush(Context *on_finish, bool invalidate=false, bool discard_unflushed_writes=false);
 };
 
