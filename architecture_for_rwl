@@ -28,10 +28,6 @@ ImageWriteBack
                                --> AioFile (own)           --> namely, m_metastore
                                --> MetaStore (last layer)  --> namely, m_cache_file
 
-====================== Gather ========================
-
-typedef C_GatherBase<Context, Context> C_Gather;
-
 
 
 
@@ -120,10 +116,12 @@ AbstractImageWriteRequest::send_object_requests --> (1-2)
                     |
              block_request->activate()
 
-
-============ rwl's request ======================================
+=============================================================================================
+======================================== rwl's request ======================================
+=============================================================================================
 
 Context
+  |
 std::enable_shared_from_this<SharedPtrContext>
   |  
   --> SharedPtrContext
@@ -150,36 +148,71 @@ Context
   --> C_ReadRequest
 
 
-==================== rwl's operation =============================================
-
-GenericLogOperation
-  |
-  --> SyncPointLogOperation
-  |                       
-  --> GenericWriteLogOperation
-        |
-        --> DiscardLogOperation
-        |
-        --> WriteLogOperation
-              |
-              --> WriteSameLogOperation
+==================== rwl's operation  <-----> rwl's entry =============================================
 
 
-===================== rwl's log entry ================================================
+GenericLogOperation ----------------> SyncPointLogOpeation
+                    |                    |
+                    |                    --> SyncPoint
+                    |       
+                    |       
+                    | 
+                    ----------------> GenericWriteLogOperation ---------------------> DiscardLogOperation
+                                         |                     |                         |
+                                         --> SyncPoint         |                         --> DiscardLogEntry log_entry
+                                         |                     |
+                                         --> on_write_append   |
+                                         |                     |
+                                         --> on_write_persist  |
+                                                               |
+                                                               |
+                                                               |
+                                                               -----------------------> WriteLogOperation  ----------------------------> WriteSameLogOperation
+                                                                                          |
+                                                                                          --> WriteLogEntry log_entry
+                                                                                          |
+                                                                                          --> bufferlist bl
+                                                                                          |
+                                                                                          --> WriteBufferAllocation buffer_alloc
+                                                                       
+                                                                       
 
 
-GenericLogEntry  -----------------------------------------------> in-mem : WriteLogPmemEntry copy version.
-  |                                                          |
-  --> SyncPointLogEntry                                      ---> pmem   : one refference which point to persistent memory's WriteLogPmemEntry
-  |
-  --> GeneralWriteLogEntry
-        |
-        --> DiscardLogEntry
-        |
-        --> WriteLogEntry
-             |
-             --> WriteSameLogEntry
-      
+
+
+GenericLogEntry ------------------------------------> SyncPointLogEntry 
+  |                                  |                   |  
+  --> WriteLogPmemEntry ram_entry    |                   --> uint32_t m_writes       
+  |                                  |                   --> uint32_t m_bytes        
+  --> WriteLogPmemEntry* pmem_entry  |                   --> uint32_t m_write_completed        
+  |                                  |                   --> uint32_t m_write_flushed 
+  --> int log_entry_index            |                   --> bool m_prior_sync_point_flush 
+  |                                  |                   | 
+  --> bool completed                 |                   --> SyncPointLogEntry* m_next_sync_point_entry 
+                                     |                 
+                                     |                 
+                                     |                 
+                                     |
+                                     -------------> GeneralWriteLogEntry -----------------------------------> DiscardLogEntry
+                                                       |                                       |
+                                                       |--> uint32_t referring_map_entries     |
+                                                       |--> bool flushing                      |
+                                                       |--> bool flushed                       |
+                                                       |                                       ----------------------> WriteLogEntry ---------------------> WriteSameLogEntry
+                                                       |                                                                 |                     
+                                                       --> SyncPointLogEntry* sync_point_entry                           |                                                            
+                                                                                                                         |                     
+                                                                                                                         |                                
+                                                                                                                         |                            
+                                                                                                                         |                                 
+                                                                                                                         |                                                            
+                                                                                                                         --> buffer::ptr pmem_bp;
+                                                                                                                         --> buffer::list pmem_bl;
+                                                                                                                         --> std::atomic<int> bl_refs = {0}; 
+                                                                                                                         --> uint8_t *pmem_buffer = nullptr;
+
+
+
 
 
 ======================= rwl's Resource =======================================================
@@ -192,29 +225,80 @@ C_WriteRequest
         |
         ---> WriteBufferAllocation  
                 |
-                -->unsigned int allocation_size = 0;
+                ---> unsigned int allocation_size = 0;
                 |
-                -->pobj_action buffer_alloc_action;
+                ---> pobj_action buffer_alloc_action;
                 |
-                -->TOID(uint8_t) buffer_oid = OID_NULL;   <----- ###
+                ---> TOID(uint8_t) buffer_oid = OID_NULL;   <----- ###
                 |
-                -->bool allocated = false;
+                ---> bool allocated = false;
                 |
-                -->utime_t allocation_lat;
+                ---> utime_t allocation_lat;
 
 =========================================================================
 
 SyncPoint
   |
-  | M
+  |  
+  --> std::shared_ptr<SyncPointLogEntry> log_entry; // ########
+  |  
+  --> std::shared_ptr<SyncPoint<T>> earlier_sync_point;
+  --> std::shared_ptr<SyncPoint<T>> later_sync_point;
+  |  
+  --> uint64_t m_final_op_sequence_num = 0;
   |
-  --> SyncPointLogEntry
+  --> C_Gather *m_prior_log_entries_persisted;
+  --> int m_prior_log_entries_persisted_result = 0;
+  --> int m_prior_log_entries_persisted_complete = false;
+  |
+  --> C_Gather *m_sync_point_persist;
+  --> bool m_append_scheduled = false;
+  --> bool m_appending = false;
+  |
+  --> std::vector<Context*> m_on_sync_point_appending;
+  --> std::vector<Context*> m_on_sync_point_persisted;
+
+
+============================================================================================
+
+WriteLogOperationSet 
+  |
+  --> BlockExtent m_extent;
+  --> BlockGuardCell *m_cell;
+  |
+  --> Context *m_on_finish;
+  --> bool m_persist_on_flush; 
+  |
+  --> C_Gather *m_extent_ops_appending;
+  --> Context *m_on_ops_appending;
+  |
+  --> C_Gather *m_extent_ops_persist;
+  --> Context *m_on_ops_persist;
+  |
+  --> GenericLogOperationsVector<T> operations;
+  --> utime_t m_dispatch_time;
+  |
+  --> std::shared_ptr<SyncPoint<T>> sync_point;
+
+
+
+======================= message break down ==================================================
+
+                   bl                              bl1                                   copy
+aio_write(bl) -------------> C_BlockIOReuqest ------------> GenericWriteLogOperation ------------> WriteLogEntry.pmem_buffer ---------> rwl.flush_pmem_buffer
+                                               |   bl2                                   copy
+                                               -----------> GenericWriteLogOperation ------------> WriteLogEntry.pmem_buffer ---------> rwl.flush_pmem_buffer
+                                               |   bl3                                   copy
+                                               -----------> GenericWriteLogOperation ------------> WriteLogEntry.pmem_buffer ---------> rwl.flush_pmem_buffer  
+                                               |   bl4                                   copy
+                                               -----------> GenericWriteLogOPeration ------------> WriteLogEntry.pmem_buffer ---------> rwl.flush_pmem_buffer
+
 
 
 
 ============================ write flow ========================================
 
-                           ### TODO
+                         ### TODO
                             |
       aio_write      flush_new_sync_point     aio_discard      aio_writesame   aio_compare_and_write
          |                |                        |                 |                 |
@@ -222,73 +306,244 @@ SyncPoint
          |                |                        |                 |                 |
 ----------------------------------------------------------------------------------------------------------------                    
 |                                                                                                              |
-|              block_guarded_request                                                                           |
+|                                      block_guarded_request                                                   |
 |                                                                                                              |
 ----------------------------------------------------------------------------------------------------------------
                         |
-                        | C_BlockIORequest
+                        v virtual : C_BlockIORequest
                         |
-     --------------------
-     |
-alloc_and_dispatch_io_req (xxx_req)
-     |
-rwl.m_deffered_ios.emppty()  ------------------------------>
+        -----------------
+        |
+rwl.alloc_and_dispatch_io_req (xxx_req)
+        |
+        |
+rwl.m_deffered_ios.empty()  ------------------------------->
    |                                    no                 |
-   | yes                                                   |
+   | yes                                                   v 
    |                                              fails    |
    --> == C_BlockIORequest->alloc_resource() == ---------->|
            |                                               |
-           | success                                       |
+           v success                                       |
            |                                               |
            --> == C_BlockIORequest->dispatch ==            |
-                            |                              ---> rwl.dispatch_deffered_write
+                            |                              ---> rwl.dispatch_deffered_write(xxx_req)
+                            v 
                             | 
 -------------------------------------------------------------------------------------------------
        |                          |                         |
   C_WriteRequest            C_FlushRequest          C_DiscardRequest        
        |                          |                         |
 --------------------------------------------------------------------------------------------------
+       |                          |                         |    
+       v                        #####                       TODO
        |                              
-       |                          
+--------------------------------------------------------------------------------------------------------------------- C_WriteRequest                                
+       |                              
+C_WriteRequest::dispatch
+  |
+  ---> set_complete = new C_OnFinisher(this, &rwl.m_on_persist_finisher);
+  |
+  ---> rwl.flush_new_sync_point(nullptr, on_exit); ------> TODO
+  |
+  ---> m_op_set = new WriteLogOperationSet(....)                     
+  |
+  ---> setup_log_operations()
+  |      |
+  |      --> for(auto &extent : m_image_extents) 
+  |            | 
+  v            -->  auto operation = std::make_shared<WriteLogOperation<T>>(*m_op_set, extent.first, extent.second);
+  |            | 
+  |            -->  m_op_set->operations.emplace_back(operation);
+  |          
+  |
+  ---> for(auto gen_op = m_op_set.operations.begin(), auto allocation = m_resource.begin; ... ; ...) 
+  |         |
+  |         --> auto operation = gen_op->get_write_op();
+  |         |
+  |         --> operation->log_entry->ram_entry.has_data = 1;
+  |         --> operation->log_entry->ram_entry.write_data = allocation->buffer_oid; // ##############
+  |         --> operation->log_entry->ram_entry.sync_gen_number = rwl.m_current_sync_gen;
+  |         --> operation->log_entry->ram_entry.sync_point = 0;
+  |         --> operation->log_entry->ram_entry.discard = 0;
+  |         |
+  |         --> assert(!TOID_IS_NULL(operation->log_entry->ram_entry.write_data));
+  |         --> operation->log_entry->pmem_buffer = D_RW(operation->log_entry->ram_entry.write_data); // ###########
+  |         --> operation->buffer_alloc = &(*allocation);
+  |         |             
+  |         --> if (m_op_set->m_persist_on_flush)
+  |         |       operation->log_entry->ram_entry.write_sequence_number = 0;
+  |         --> else
+  |         |      operation->log_entry->ram_entry.write_sequence_number = ++rwl.m_last_op_sequence_num;
+  |         |      operation->log_entry->ram_entry.sequenced = 1;
+  |         |
+  |         --> operation->bl.substr_of(this->bl, buffer_offset, operation->log_entry->write_bytes()); // ##############
+  |         --> buffer_offset += operation->log_entry->write_bytes();
+  |         |
+  |         |
+  |         --> log_entries.emplace_back(operation->log_entry) ---------------->---------------------------------->--
+  |                                                                                                                 |            
+  |                                                                                                                 |            
+  ---> m_op_set->m_extent_ops_appending->activate()                                                                 |                                                    
+  |                                                                                                                 |                            
+  ---> m_op_set->m_extent_ops_persist->activate()                                                                   |                                    
+  |                                                                                                                 |                                                    
+  |                                                                                                                 |             
+  ---> for (auto &operation : m_op_set->operations)                                                                 |    
+  |      |                                                                                                          |                                    
+  |      --> auto write_op = operation->get_write_op();                                                             | insert to m_blocks_to_log_entries   
+  |      |                                                                                                          |                                            
+  |      --> bufferlist::iterator i(&write_op->bl);                                                                 |                    
+  |      |                                                                                                          |            
+  |      --> i.copy((unsigned)write_op->log_entry->write_bytes(), (char*)write_op->log_entry->pmem_buffer);         |            
+  |                                                                                                                 |                                    
+  |                                                                                                                 |    
+  |                                                                                                                 |                                                    
+  --------------> rwl.m_blocks_to_log_entries.add_log_entries(log_entries)     <-------------------------------------                               
+  |          
+  |          
+  --> if (rwl.m_persist_on_flush_early_user_comp && m_op_set->m_persist_on_flush)
+  |      |
+  |      | yes
+  |      |
+  |      ----> this->complete_user_request(0);
+  |              |
+  |              --> C_BlockIORequest.complete_user_request
+  |                     |
+  |                     --> C_BlockIORequest.user_req->complete -------> aio_write's callback <-------
+  |        
+  |
+  |
+  |
+  -------------> persist_on_write mode ----------
+  |                                             |
+  |                                             |
+  |                                             --->  auto write_req_sp = this;
+  |                                             --->  Context *schedule_append_ctx = new FunctionContext([this, write_req_sp](int r) {
+  |                                             |        write_req_sp->schedule_append(); 
+  |                                             |     });
+  |                                             --->  m_op_set->sync_point->earlier_sync_point->m_on_sync_point_appending.push_back(schedule_append_ctx);
+  |                                                                                                                                        |  
+  |                                                                                                                                        |
+  |                                                                                                                                 ------------------ thread swhitch 
+  |                                                                                                                                        |
+  |                                                                                                                                        |
+  |                -------------------------<------------------------------------------------<----------------------------------------------                                                                                                                        
+  |                |                                                                                                                                        
+  |                |
+  ---> C_WriteRequest->schedule_append   
+         |                                     
+         --> m_do_earler_flush -------------------------------------------
+              |                                                          |
+              | true                                                     | false
+              |                                                          |
+              --> rwl::flush_pmem_buffer(m_op_set.operations)            --> rwl::shedule_flush_and_append(m_op_set.operations)
+              |       |                                                          
+              |       ---> for (auto &operation : ops) {
+              |       |       if (operation->is_write() || operation->is_writesame()) {
+              |       |           auto write_entry = operation->get_write_log_entry();
+              |       |           pmemobj_flush(m_internal->m_log_pool, write_entry->pmem_buffer, write_entry->write_bytes());
+              |       |       }
+              |       |     }
+              |       | 
+              |       ---> pmemobj_drain(m_internal->m_log_pool);
+              |  
+              |                                                          
+              |                                                          
+              --> rwl::shedule_append(m_op_set.operations)              
+                          |                         
+--------------------------|-------------------------------- switch to rwl     
+                          |           
+                          |           
+       --------------------
        | 
-       |  
-       |
- schedule_append
-       |
- m_do_earler_flush -------------------
-     |                               |
-     | true                          | false
-     |                               |
-rwl::flush_pmem_buffer        rwl::shedule_flush_and_append
-rwl::shedule_append                  |
-     |                               |
------------------------------------------------------------ switch to rwl     
-     |                               |
-
-enlist_ops_append --> enqueue work queue --> xxx
-op->appending 
+       | 
+rwl::shedule_append(m_op_set.operations)
+   |
+   | ops = m_op_set.operations
+   |
+   --> rwl.m_ops_to_append.splice(m_ops_to_append.end(), ops)
+   |
+   --> if need_finisher, so enlist_ops_append   ----> TODO
+   |
+   --> for(auto op : ops) 
+        |
+        --> op.appending()
+                 | 
+     -------------
      |
-GeneralWriteLogOperation::appending  --> /* Called when the write log operation is appending and its log position is guaranteed */
-     
-xxx --> append_scheduled_ops  --> Performs the log event append operation for all of the scheduled events
-    | 
-alloc_op_log_entries(ops); --> yyy -->  Allocate the (already reserved) write log entries for a set of operations.
-append_op_log_entries(ops); --> zzz -->  Write and persist the (already allocated) write log entries and
-                                         data buffer allocations for a set of ops. The data buffer for each
-                                         of these must already have been persisted to its reserved area.
-complete_op_log_entries  --> New entries may be flushable. Completion will wake up flusher.  
-
-
-zzz --> flush_op_log_entries  --> Flush the persistent write log entries set of ops. The entries must
-                                  be contiguous in persistent memory.
-             
-  
+     | namely
+     |
+GenericLogOperation::appending
+    |   
+(1) --> SyncPointLogOperation::appending
+    |     |
+    |     --> for(auto ctx : sync_point.my_on_sync_point_appending) 
+    |            |
+    |            --> ctx->complete
+    |     
+    |     
+    |     
+    |     
+    |     
+    |     
+    |     
+    |
+(2) --> GeneralWriteLogOperation::appending
+          |
+          --> GenericWriteLogOperation.on_write_append->complete(0)
+                        | 
+                        | namely  
+                        | 
+            WriteLogOperationsSet.m_extent_ops_appending->new_stub()->complete(0)  <------------ the last one of operation set
+               |
+               --> WriteLogOperationsSet.m_on_ops_appending.complete(0)
+               |      |      
+               |      | namely
+               |      |      
+               |      --> m_on_ops_appending = sync_point->m_prior_log_entries_persisted->new_sub()->complete();
+               |
+               --> WriteLogOperationsSet.m_extent_ops_persist
+                     | 
+                     --> WriteLogOperationSet.m_on_finish->complete(r);
+                             |
+                             | m_on_finish <--> new C_OnFinisher(C_WriteRequest, rwl.m_on_persist_finisher)
+                             |
+                             --> C_BlockIORequest->finish()              
+                                    |
+                                    --> complete_user_request
+                                    |
+                                    --> virtual finish_req = 0 
+                                               |
+                                C_WriteRequest::finish_req
+                                    |
+                                    --> rwl.release_writes_lanes
+                                    |
+                                    --> this->release_cell
+                                    |
+                                    --> update_req_stat
+ 
 
 ===========================================================================
 
-C_WriteRequest
-  |
-  --> 
+C_FlushRequest::dispatch
+  | 
+  --> op = std::make_shared<SyncPointLogOperation<T>>(rwl, to_append, now);
+  | 
+  --> rwl.schedule_append(C_FlushRequest.op)
+                                |   
+---------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
 
 ====================== note ===============================
 
@@ -305,7 +560,7 @@ how to judge current all clean :
 
 How to flush all writes to OSD ?
 
-
+                                                        
         
         
 flush(...)
@@ -411,7 +666,7 @@ rwl_init
   |
   --> init_flush_new_sync_point
            | 
-           --> new_sync_point
+           --> new_sync_point --> TODO
            | 
            --> flush_new_sync_point
 
@@ -429,6 +684,87 @@ WriteRequestResources
 
 
 
+
+========================================================================
+
+
+
+ 
+C_WriteRequest::schedule_append
+              |
+              |
+              ---------->------------------------
+              |                                 |
+              |                                 v 
+              |                                 |
+              v                        schedule_flush_and_append
+              |                                 |
+              |                                 v 
+              |                            enlist_op_flusher <-------------
+              |                                 |                         |
+              |                                 v                         |
+              |                       flush_then_append_scheduled_ops ---->
+              |                                 |
+              |                                 v 
+              v                                 |
+              |<---------------------------------                                
+              v                            
+              |                                    
+####### flush_pmem_buffer ###############
+              |
+              v 
+        schedule_append  ------------>
+              |                      | 
+              v                      v
+              |                      |
+        enlist_op_appender      op->appending
+              |
+              v 
+ ------------------------------------------------------------- thread switch              
+              |
+              |
+        append_scheduled_ops 
+              |
+              |
+         alloc_op_log_entries
+              |
+              |
+        append_op_log_entries ---------------> ##### log : memory --> AEP #####
+              |                        | 
+              |                        ------> ##### flush_op_log_entries ######
+              |                                            |
+              |                                            ---> pmemobj_drain  
+              |                                            |       
+              |                                            ---> transaction        
+     complete_op_log_entries                                     
+              |                                      
+              |                                      
+  == GenericLogOperation->complete ==
+        |
+        ---> SyncPointLogOperation::complete
+        |        | 
+        |        ---> SyncPointLogOperation::appending
+        |        | 
+        |        ---> rwl.handle_flushed_sync_point(sync_point->log_entry)
+        |        | 
+        |        ---> for( auto ctx : sync_point.m_on_sync_point_persisted ) 
+        |                | 
+        |                --> ctx->complete() 
+        |               
+        |               
+        |               
+        ---> GenericWriteLogOperation::complete
+                |
+                ---> GenericWriteLogOperation::appending
+                |       |
+                |       ---> construction : on_write_append = WriteLogOperationSet.m_extents_ops_appending->new_sub()
+                |       |
+                |       ---> on_write_append->complete()
+                |
+                ---> construction : on_write_persist = WriteLogOperationSet.m_extents_ops_persisit->new_sub()
+                |
+                ---> on_write_persist->complete()
+                      
 
 
 

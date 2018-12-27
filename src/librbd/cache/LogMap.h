@@ -54,13 +54,16 @@ class LogMap
 {
 public:
   LogMap(CephContext *cct);
+
   LogMap(const LogMap&) = delete;
   LogMap &operator=(const LogMap&) = delete;
 
   void add_log_entry(std::shared_ptr<T> log_entry);
   void add_log_entries(T_S &log_entries);
+
   void remove_log_entry(std::shared_ptr<T> log_entry);
   void remove_log_entries(T_S &log_entries);
+
   T_S find_log_entries(BlockExtent block_extent);
   LogMapEntries<T> find_map_entries(BlockExtent block_extent);
 
@@ -82,8 +85,7 @@ private:
 		    const LogMapEntryT &rhs) const;
   };
 
-  using BlockExtentToLogMapEntries = std::set<LogMapEntryT,
-					      LogMapEntryCompare>;
+  using BlockExtentToLogMapEntries = std::set<LogMapEntryT, LogMapEntryCompare>;
 
   LogMapEntry<T> block_extent_to_map_key(const BlockExtent &block_extent);
 
@@ -94,8 +96,7 @@ private:
 };
 
 template <typename T>
-LogMapEntry<T>::LogMapEntry(const BlockExtent block_extent,
-			    std::shared_ptr<T> log_entry)
+LogMapEntry<T>::LogMapEntry(const BlockExtent block_extent, std::shared_ptr<T> log_entry)
   : block_extent(block_extent) , log_entry(log_entry) {
 }
 
@@ -301,12 +302,10 @@ void LogMap<T, T_S>::split_map_entry_locked(LogMapEntry<T> &map_entry, BlockExte
   LogMapEntry<T> split = *it;
   m_block_to_log_entry_map.erase(it);
 
-  BlockExtent left_extent(split.block_extent.block_start,
-			  removed_extent.block_start-1);
+  BlockExtent left_extent(split.block_extent.block_start, removed_extent.block_start-1);
   m_block_to_log_entry_map.insert(LogMapEntry<T>(left_extent, split.log_entry));
 
-  BlockExtent right_extent(removed_extent.block_end+1,
-			   split.block_extent.block_end);
+  BlockExtent right_extent(removed_extent.block_end+1, split.block_extent.block_end);
   m_block_to_log_entry_map.insert(LogMapEntry<T>(right_extent, split.log_entry));
 
   split.log_entry->inc_map_ref();

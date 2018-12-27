@@ -205,50 +205,50 @@ class SyncPoint
 {
 public:
   T &rwl;
+
   std::shared_ptr<SyncPointLogEntry> log_entry;
+
   /* Use m_lock for earlier/later links */
-  std::shared_ptr<SyncPoint<T>> earlier_sync_point; /* NULL if earlier has completed */
+  /* NULL if earlier has completed */
+  std::shared_ptr<SyncPoint<T>> earlier_sync_point;
   std::shared_ptr<SyncPoint<T>> later_sync_point;
+
   uint64_t m_final_op_sequence_num = 0;
 
-  /* 
-   * A sync point can't appear in the log until all the writes bearing
-   * it and all the prior sync points have been appended and persisted.
-   *
-   * Writes bearing this sync gen number and the prior sync point will be
-   * sub-ops of this Gather. This sync point will not be appended until all
-   * these complete to the point where their persist order is guaranteed. 
-   */
-
-  /*  if current sync_point be appended, need to meet two situations as following: 
-   *  1 : all write operation which own this sync_point must have been appended and persisted.
-   *  2 : all the prior sync points have been appended and persisted. 
-   */
-  C_Gather *m_prior_log_entries_persisted;
-
+ /* 
+  * A sync point can't appear in the log until all the writes bearing
+  * it and all the prior sync points have been appended and persisted.
+  *
+  * Writes bearing this sync gen number and the prior sync point will be
+  * sub-ops of this Gather. 
+  *
+  * This sync point will not be appended until all these complete to the point 
+  * where their persist order is guaranteed. 
+  */
+  C_Gather *m_prior_log_entries_persisted; // ## details at rwl.new_sync_point
   int m_prior_log_entries_persisted_result = 0;
   int m_prior_log_entries_persisted_complete = false;
 
-  /* 
-   * The finisher for this will append the sync point to the log.  
-   * The finisher for m_prior_log_entries_persisted will be a sub-op of this. 
-   */
+ /* 
+  * The finisher for this will append the sync point to the log.  
+  * The finisher for m_prior_log_entries_persisted will be a sub-op of this. 
+  */
   C_Gather *m_sync_point_persist;
-
   bool m_append_scheduled = false;
   bool m_appending = false;
-  /* 
-   * Signal these when this sync point is appending to the log, and its order
-   * of appearance is guaranteed. One of these is is a sub-operation of the
-   * next sync point's m_prior_log_entries_persisted Gather. 
-   */
+
+ /* 
+  * Signal these when this sync point is appending to the log, and its order of appearance is guaranteed. 
+  *
+  * One of these is is a sub-operation of the next sync point's m_prior_log_entries_persisted Gather. 
+  */
   std::vector<Context*> m_on_sync_point_appending;
 
-  /* 
-   * Signal these when this sync point is appended and persisted. 
-   *
-   * User aio_flush() calls are added to this. 
-   */
+ /* 
+  * Signal these when this sync point is appended and persisted. 
+  *
+  * User aio_flush() calls are added to this. 
+  */
   std::vector<Context*> m_on_sync_point_persisted;
 
   SyncPoint(T &rwl, const uint64_t sync_gen_num);
@@ -285,15 +285,19 @@ class GenericLogOperation
 {
 public:
   T &rwl;
+
   utime_t m_dispatch_time;         // When op created
   utime_t m_buf_persist_time;      // When buffer persist begins
   utime_t m_buf_persist_comp_time; // When buffer persist completes
   utime_t m_log_append_time;       // When log append begins
   utime_t m_log_append_comp_time;  // When log append completes
+
   GenericLogOperation(T &rwl, const utime_t dispatch_time);
-  virtual ~GenericLogOperation() { };
+  virtual ~GenericLogOperation() {};
+
   GenericLogOperation(const GenericLogOperation&) = delete;
   GenericLogOperation &operator=(const GenericLogOperation&) = delete;
+
   virtual std::ostream &format(std::ostream &os) const {
     os << "m_dispatch_time=[" << m_dispatch_time << "], "
        << "m_buf_persist_time=[" << m_buf_persist_time << "], "
@@ -302,25 +306,28 @@ public:
        << "m_log_append_comp_time=[" << m_log_append_comp_time << "], ";
     return os;
   };
-  friend std::ostream &operator<<(std::ostream &os,
-				  const GenericLogOperation &op) {
+
+  friend std::ostream &operator<<(std::ostream &os, const GenericLogOperation &op) {
     return op.format(os);
   }
+
   virtual const std::shared_ptr<GenericLogEntry> get_log_entry() = 0;
   virtual const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return nullptr; }
   virtual const std::shared_ptr<GeneralWriteLogEntry> get_gen_write_log_entry() { return nullptr; }
   virtual const std::shared_ptr<WriteLogEntry> get_write_log_entry() { return nullptr; }
-  virtual const std::shared_ptr<WriteSameLogEntry> get_write_same_log_entry() { return nullptr; }
   virtual const std::shared_ptr<DiscardLogEntry> get_discard_log_entry() { return nullptr; }
+  virtual const std::shared_ptr<WriteSameLogEntry> get_write_same_log_entry() { return nullptr; }
+
   virtual void appending() = 0;
   virtual void complete(int r) = 0;
+
   virtual bool is_write() { return false; }
   virtual bool is_sync_point() { return false; }
   virtual bool is_discard() { return false; }
   virtual bool is_writesame() { return false; }
   virtual bool is_writing_op() { return false; }
+
   virtual GeneralWriteLogOperation<T> *get_gen_write_op() { return nullptr; };
-  // ##
   virtual WriteLogOperation<T> *get_write_op() { return nullptr; };
 };
 
@@ -332,28 +339,34 @@ class SyncPointLogOperation : public GenericLogOperation<T>
 {
 public:
   using GenericLogOperation<T>::rwl;
-  std::shared_ptr<SyncPoint<T>> sync_point;
-  SyncPointLogOperation(T &rwl,
-			std::shared_ptr<SyncPoint<T>> sync_point,
-			const utime_t dispatch_time);
+
+  std::shared_ptr<SyncPoint<T>> sync_point; // ##
+
+  SyncPointLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point, const utime_t dispatch_time);
   ~SyncPointLogOperation();
+
   SyncPointLogOperation(const SyncPointLogOperation&) = delete;
   SyncPointLogOperation &operator=(const SyncPointLogOperation&) = delete;
+
   std::ostream &format(std::ostream &os) const {
     os << "(Sync Point) ";
     GenericLogOperation<T>::format(os);
-    os << ", "
-       << "sync_point=[" << *sync_point << "]";
+    os << ", " << "sync_point=[" << *sync_point << "]";
     return os;
   };
-  friend std::ostream &operator<<(std::ostream &os,
-				  const SyncPointLogOperation<T> &op) {
+
+  friend std::ostream &operator<<(std::ostream &os, const SyncPointLogOperation<T> &op) {
     return op.format(os);
   }
+
   const std::shared_ptr<GenericLogEntry> get_log_entry() { return get_sync_point_log_entry(); }
   const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return sync_point->log_entry; }
   bool is_sync_point() { return true; }
-  void appending();
+
+  // execute all context derived from sync_point->m_on_sync_appending...sdh
+  void appending(); 
+
+  // execute all context derived from sync_point->m_on_sync_persist...sdh
   void complete(int r);
 };
 
@@ -364,31 +377,40 @@ private:
   friend class WriteLogOperation<T>;
   friend class DiscardLogOperation<T>;
   Mutex m_lock;
+
 public:
   using GenericLogOperation<T>::rwl;
-  std::shared_ptr<SyncPoint<T>> sync_point;
-  Context *on_write_append = nullptr;  /* Completion for things waiting on this
-					* write's position in the log to be
-					* guaranteed */
-  Context *on_write_persist = nullptr; /* Completion for things waiting on this
-					* write to persist */
-  GeneralWriteLogOperation(T &rwl,
-			   std::shared_ptr<SyncPoint<T>> sync_point,
-			   const utime_t dispatch_time);
+
+  std::shared_ptr<SyncPoint<T>> sync_point; // ##
+
+  /* Completion for things waiting on this write's position in the log to be guaranteed */
+  Context *on_write_append = nullptr;  
+
+  /* Completion for things waiting on this write to persist */
+  Context *on_write_persist = nullptr;
+
+  GeneralWriteLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point, const utime_t dispatch_time);
   ~GeneralWriteLogOperation();
+
   GeneralWriteLogOperation(const GeneralWriteLogOperation&) = delete;
   GeneralWriteLogOperation &operator=(const GeneralWriteLogOperation&) = delete;
+
   std::ostream &format(std::ostream &os) const {
     GenericLogOperation<T>::format(os);
     return os;
   };
-  friend std::ostream &operator<<(std::ostream &os,
-				  const GeneralWriteLogOperation<T> &op) {
+
+  friend std::ostream &operator<<(std::ostream &os, const GeneralWriteLogOperation<T> &op) {
     return op.format(os);
   }
+
   GeneralWriteLogOperation<T> *get_gen_write_op() { return this; };
   bool is_writing_op() { return true; }
+
+  // execute on_write_append::complete...sdh
   void appending();
+
+  // execute on_write_persist::complete...sdh
   void complete(int r);
 };
 
@@ -401,13 +423,17 @@ public:
   using GeneralWriteLogOperation<T>::sync_point;
   using GeneralWriteLogOperation<T>::on_write_append;
   using GeneralWriteLogOperation<T>::on_write_persist;
-  std::shared_ptr<WriteLogEntry> log_entry;
-  bufferlist bl; //  <-----
-  WriteBufferAllocation *buffer_alloc = nullptr;
+
+  std::shared_ptr<WriteLogEntry> log_entry; // ##
+  bufferlist bl; // ##
+  WriteBufferAllocation *buffer_alloc = nullptr; // ##
+
   WriteLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes, const uint64_t write_bytes);
   ~WriteLogOperation();
+
   WriteLogOperation(const WriteLogOperation&) = delete;
   WriteLogOperation &operator=(const WriteLogOperation&) = delete;
+
   std::ostream &format(std::ostream &os) const;
 
   friend std::ostream &operator<<(std::ostream &os, const WriteLogOperation<T> &op) {
@@ -432,20 +458,23 @@ public:
   using WriteLogOperation<T>::log_entry;
   using WriteLogOperation<T>::bl;
   using WriteLogOperation<T>::buffer_alloc;
-  WriteSameLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes,
-			const uint64_t write_bytes, const uint32_t data_len);
+
+  WriteSameLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes, const uint64_t write_bytes, const uint32_t data_len);
   ~WriteSameLogOperation();
+
   WriteSameLogOperation(const WriteSameLogOperation&) = delete;
   WriteSameLogOperation &operator=(const WriteSameLogOperation&) = delete;
+
   std::ostream &format(std::ostream &os) const {
     os << "(Write Same) ";
     WriteLogOperation<T>::format(os);
     return os;
   };
-  friend std::ostream &operator<<(std::ostream &os,
-				  const WriteSameLogOperation<T> &op) {
+
+  friend std::ostream &operator<<(std::ostream &os, const WriteSameLogOperation<T> &op) {
     return op.format(os);
   }
+
   const std::shared_ptr<GenericLogEntry> get_log_entry() { return get_write_same_log_entry(); }
   const std::shared_ptr<WriteSameLogEntry> get_write_same_log_entry() {
     return static_pointer_cast<WriteSameLogEntry>(log_entry);
@@ -463,20 +492,21 @@ public:
   using GeneralWriteLogOperation<T>::sync_point;
   using GeneralWriteLogOperation<T>::on_write_append;
   using GeneralWriteLogOperation<T>::on_write_persist;
+
   std::shared_ptr<DiscardLogEntry> log_entry;
-  DiscardLogOperation(T &rwl,
-		      std::shared_ptr<SyncPoint<T>> sync_point,
-		      const uint64_t image_offset_bytes,
-		      const uint64_t write_bytes,
+  DiscardLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point,
+		      const uint64_t image_offset_bytes, const uint64_t write_bytes,
 		      const utime_t dispatch_time);
   ~DiscardLogOperation();
+
   DiscardLogOperation(const DiscardLogOperation&) = delete;
   DiscardLogOperation &operator=(const DiscardLogOperation&) = delete;
+
   std::ostream &format(std::ostream &os) const;
-  friend std::ostream &operator<<(std::ostream &os,
-				  const DiscardLogOperation<T> &op) {
+  friend std::ostream &operator<<(std::ostream &os, const DiscardLogOperation<T> &op) {
     return op.format(os);
   }
+
   const std::shared_ptr<GenericLogEntry> get_log_entry() { return get_discard_log_entry(); }
   const std::shared_ptr<DiscardLogEntry> get_discard_log_entry() { return log_entry; }
   bool is_discard() { return true; }
@@ -500,36 +530,49 @@ using WriteLogOperations = std::list<WriteLogOperationSharedPtr<T>>;
 template <typename T>
 using WriteSameLogOperationSharedPtr = std::shared_ptr<WriteSameLogOperation<T>>;
 
-// ====================================================
-
 template <typename T>
 class WriteLogOperationSet 
 {
 public:
   T &rwl;
+
   BlockExtent m_extent; /* in blocks */
-  Context *m_on_finish; // rwl::m_on_persist_finisher
+
+  /* C_WriteRequest */ 
+  Context* m_on_finish;
+
   bool m_persist_on_flush;
   BlockGuardCell *m_cell;
-  C_Gather *m_extent_ops_appending; // --> 
+
+  C_Gather *m_extent_ops_appending;
   Context *m_on_ops_appending;
-  C_Gather *m_extent_ops_persist; // --> 
+
+  // will call m_on_finish->complete
+  C_Gather *m_extent_ops_persist;
   Context *m_on_ops_persist;
-  GenericLogOperationsVector<T> operations; // --> setup_log_operation 
+
+  // just one stub for sync_point::m_prior_log_entries_persisted
+  // finially, detailed at new_sync_point
+
+  // SyncPointLogOperation / GenericWriteLogOpeartion
+  GenericLogOperationsVector<T> operations;
+
   utime_t m_dispatch_time; // When set created 
-  std::shared_ptr<SyncPoint<T>> sync_point; // --> ##
+
+  // 
+  std::shared_ptr<SyncPoint<T>> sync_point;
 
   WriteLogOperationSet(T &rwl, const utime_t dispatched, std::shared_ptr<SyncPoint<T>> sync_point,
 		       const bool persist_on_flush, BlockExtent extent, Context *on_finish);
 
   ~WriteLogOperationSet();
+
   WriteLogOperationSet(const WriteLogOperationSet&) = delete;
   WriteLogOperationSet &operator=(const WriteLogOperationSet&) = delete;
 
   friend std::ostream &operator<<(std::ostream &os, const WriteLogOperationSet<T> &s) {
     os << "m_extent=[" << s.m_extent.block_start << "," << s.m_extent.block_end << "] "
-       << "m_on_finish=" << s.m_on_finish << ", "
-       << "m_cell=" << (void*)s.m_cell << ", "
+       << "m_on_finish=" << s.m_on_finish << ", " << "m_cell=" << (void*)s.m_cell << ", "
        << "m_extent_ops_appending=[" << s.m_extent_ops_appending << ", "
        << "m_extent_ops_persist=[" << s.m_extent_ops_persist << "]";
     return os;
@@ -542,12 +585,9 @@ struct BlockGuardReqState
   bool current_barrier = false; /* This is the currently active barrier */
   bool detained = false;
   bool queued = false; /* Queued for barrier */
-  friend std::ostream &operator<<(std::ostream &os,
-				  const BlockGuardReqState &r) {
-    os << "barrier=" << r.barrier << ", "
-       << "current_barrier=" << r.current_barrier << ", "
-       << "detained=" << r.detained << ", "
-       << "queued=" << r.queued;
+  friend std::ostream &operator<<(std::ostream &os, const BlockGuardReqState &r) {
+    os << "barrier=" << r.barrier << ", " << "current_barrier=" << r.current_barrier << ", "
+       << "detained=" << r.detained << ", " << "queued=" << r.queued;
     return os;
   };
 };
@@ -576,8 +616,7 @@ struct GuardedRequest
     guard_ctx->m_state.barrier = barrier;
   }
 
-  friend std::ostream &operator<<(std::ostream &os,
-				  const GuardedRequest &r) {
+  friend std::ostream &operator<<(std::ostream &os, const GuardedRequest &r) {
     os << "guard_ctx->m_state=[" << r.guard_ctx->m_state << "], "
        << "block_extent.block_start=" << r.block_extent.block_start << ", "
        << "block_extent.block_start=" << r.block_extent.block_end;
@@ -603,7 +642,7 @@ template <typename T>
 struct C_BlockIORequest;
 
 template <typename T>
-struct C_WriteRequest;
+struct C _WriteRequest;
 
 template <typename T>
 struct C_FlushRequest;
@@ -650,17 +689,16 @@ public:
   ReplicatedWriteLog(const ReplicatedWriteLog&) = delete;
   ReplicatedWriteLog &operator=(const ReplicatedWriteLog&) = delete;
 
-  /// client AIO methods
+  // client AIO methods
   void aio_read(Extents&& image_extents, ceph::bufferlist *bl, int fadvise_flags, Context *on_finish) override;
   void aio_write(Extents&& image_extents, ceph::bufferlist&& bl, int fadvise_flags, Context *on_finish) override;
   void aio_discard(uint64_t offset, uint64_t length, bool skip_partial_discard, Context *on_finish);
   void aio_flush(Context *on_finish) override;
   void aio_writesame(uint64_t offset, uint64_t length, ceph::bufferlist&& bl, int fadvise_flags, Context *on_finish) override;
   void aio_compare_and_write(Extents&& image_extents, ceph::bufferlist&& cmp_bl, ceph::bufferlist&& bl,
-			     uint64_t *mismatch_offset,int fadvise_flags,
-			     Context *on_finish) override;
+                             uint64_t *mismatch_offset,int fadvise_flags, Context *on_finish) override;
 
-  /// internal state methods
+  // internal state methods
   void init(Context *on_finish) override;
   void shut_down(Context *on_finish) override;
   void get_state(bool &clean, bool &empty, bool &present) override;
@@ -687,9 +725,11 @@ private:
   friend class C_DiscardRequest<This>;
   friend class C_WriteSameRequest<This>;
   friend class C_CompAndWriteRequest<This>;
+
   typedef std::list<C_WriteRequest<This> *> C_WriteRequests;
   typedef std::list<C_BlockIORequest<This> *> C_BlockIORequests;
 
+  /************ block guard ************/
   BlockGuardCell* detain_guarded_request_helper(GuardedRequest &req);
   BlockGuardCell* detain_guarded_request_barrier_helper(GuardedRequest &req);
   void detain_guarded_request(GuardedRequest &&req);
@@ -706,9 +746,8 @@ private:
 
   std::string m_log_pool_name;
   bool m_log_is_poolset = false;
-  uint64_t m_log_pool_config_size; /* Configured size of RWL */
+  uint64_t m_log_pool_config_size;     /* Configured size of RWL */
   uint64_t m_log_pool_actual_size = 0; /* Actual size of RWL pool */
-
   uint32_t m_total_log_entries = 0;
   uint32_t m_free_log_entries = 0;
 
@@ -723,33 +762,37 @@ private:
   ImageCache<ImageCtxT> *m_image_writeback;
   WriteLogGuard m_write_log_guard;
 
-  /*
-   * When m_first_free_entry == m_first_valid_entry, the log is
-   * empty. There is always at least one free entry, which can't be
-   * used.
-   */
-  uint64_t m_first_free_entry = 0;  /* Entries from here to m_first_valid_entry-1 are free */
-  uint64_t m_first_valid_entry = 0; /* Entries from here to m_first_free_entry-1 are valid */
+  /* When m_first_free_entry == m_first_valid_entry, the log is empty.
+   * There is always at least one free entry, which can't be used. */
+  uint64_t m_first_free_entry = 0;  /* Entries [from here to m_first_valid_entry-1] are free */
+  uint64_t m_first_valid_entry = 0; /* Entries [from here to m_first_free_entry-1] are valid */
 
   /* Starts at 0 for a new write log. Incremented on every flush. */
   uint64_t m_current_sync_gen = 0;
   std::shared_ptr<SyncPointT> m_current_sync_point = nullptr;
-  /* Starts at 0 on each sync gen increase. Incremented before applied
-     to an operation */
+
+  /* Starts at 0 on each sync gen increase. Incremented before applied to an operation */
   uint64_t m_last_op_sequence_num = 0;
+
   /* All writes bearing this and all prior sync gen numbers are flushed */
   uint64_t m_flushed_sync_gen = 0;
 
   bool m_persist_on_write_until_flush = true;
-  /* True if it's safe to complete a user request in persist-on-flush
-   * mode before the write is persisted. This is only true if there is
-   * a local copy of the write data, or if local write failure always
-   * causes local node failure. */
+
+  /* 
+   * True if it's safe to complete a user request in persist-on-flush mode before the write is persisted. 
+   *
+   * This is only true if there is a local copy of the write data, or if local write failure always
+   * causes local node failure. 
+   */
   bool m_persist_on_flush_early_user_comp = false; /* Assume local write failure does not cause node failure */
-  bool m_persist_on_flush = false; /* If false, persist each write before completion */
+
+  /* If false, persist each write before completion */
+  bool m_persist_on_flush = false; 
   bool m_flush_seen = false;
 
   util::AsyncOpTracker m_async_op_tracker;
+
   /* Debug counters for the places m_async_op_tracker is used */
   std::atomic<int> m_async_flush_ops = {0};
   std::atomic<int> m_async_append_ops = {0};
@@ -757,21 +800,26 @@ private:
   std::atomic<int> m_async_null_flush_finish = {0};
   std::atomic<int> m_async_process_work = {0};
 
-  /* Acquire locks in order declared here */
+  /************* Acquire locks in order declared here ********************/
 
   mutable Mutex m_log_retire_lock;
   /* Hold a read lock on m_entry_reader_lock to add readers to log entry
    * bufs. Hold a write lock to prevent readers from being added (e.g. when
    * removing log entrys from the map). No lock required to remove readers. */
   mutable RWLock m_entry_reader_lock;
+
   /* Hold m_deferred_dispatch_lock while consuming from m_deferred_ios. */
   mutable Mutex m_deferred_dispatch_lock;
+
   /* Hold m_log_append_lock while appending or retiring log entries. */
   mutable Mutex m_log_append_lock;
+
   /* Used for most synchronization */
   mutable Mutex m_lock;
+
   /* Used in release/detain to make BlockGuard preserve submission order */
   mutable Mutex m_blockguard_lock;
+
   /* Used in WriteLogEntry::get_pmem_bl() to syncronize between threads making entries readable */
   mutable Mutex m_entry_bl_lock;
 
@@ -787,9 +835,11 @@ private:
   bool m_dispatching_deferred_ops = false;
 
   Contexts m_flush_complete_contexts;
+
+  // finisher
   Finisher m_persist_finisher;
   Finisher m_log_append_finisher;
-  Finisher m_on_persist_finisher;
+  Finisher m_on_persist_finisher; // 
 
   GenericLogOperationsT m_ops_to_flush; /* Write ops needing flush in local log */
 
@@ -798,11 +848,14 @@ private:
   // delete : append_scheduled_ops
   GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
 
+  // 
   WriteLogMap m_blocks_to_log_entries;  // reading existing entries from pmem....sdh
 
   /* New entries are at the back. Oldest at the front */
-  GenericLogEntries m_log_entries;
-  GenericLogEntries m_dirty_log_entries; // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
+  GenericLogEntries m_log_entries; // this structure maintain in-memory log entry with the same AEP.
+
+  // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
+  GenericLogEntries m_dirty_log_entries;
 
   int m_flush_ops_in_flight = 0;
   int m_flush_bytes_in_flight = 0;
@@ -810,9 +863,11 @@ private:
 
   /* Writes that have left the block guard, but are waiting for resources */
   C_BlockIORequests m_deferred_ios;
+
   /* Throttle writes concurrently allocating & replicating */
   unsigned int m_free_lanes = MAX_CONCURRENT_WRITES;
   unsigned int m_unpublished_reserves = 0;
+
   PerfCounters *m_perfcounter = nullptr;
 
   /* Initialized from config, then set false during shutdown */
@@ -829,6 +884,7 @@ private:
   std::atomic<bool> m_present = {true};
 
   const Extent whole_volume_extent(void);
+
   void perf_start(const std::string name);
   void perf_stop();
   void log_perf();
@@ -838,27 +894,36 @@ private:
   void rwl_init(Context *on_finish, DeferredContexts &later);
   void load_existing_entries(DeferredContexts &later);
 
-  void wake_up(); // put "process_work" into work_queue....sdh
-  void process_work(); // 
+  // put process_work into m_work_queue
+  void wake_up();
+  void process_work();
 
   void flush_dirty_entries(Context *on_finish);
   bool can_flush_entry(const std::shared_ptr<GenericLogEntry> log_entry);
   Context *construct_flush_entry_ctx(const std::shared_ptr<GenericLogEntry> log_entry);
+
   void persist_last_flushed_sync_gen(void);
   bool handle_flushed_sync_point(std::shared_ptr<SyncPointLogEntry> log_entry);
   void sync_point_writer_flushed(std::shared_ptr<SyncPointLogEntry> log_entry);
+
   void process_writeback_dirty_entries();
+
+
   bool can_retire_entry(const std::shared_ptr<GenericLogEntry> log_entry);
   bool retire_entries(const unsigned long int frees_per_tx = MAX_FREE_PER_TRANSACTION);
+
 
   void init_flush_new_sync_point(DeferredContexts &later);
   void new_sync_point(DeferredContexts &later);
   C_FlushRequest<ReplicatedWriteLog<ImageCtxT>>* make_flush_req(Context *on_finish);
+
   void flush_new_sync_point(C_FlushRequestT *flush_req, DeferredContexts &later);
   void flush_new_sync_point_if_needed(C_FlushRequestT *flush_req, DeferredContexts &later);
 
   void dispatch_deferred_writes(void);
+
   void release_write_lanes(C_WriteRequestT *write_req);
+
   void alloc_and_dispatch_io_req(C_BlockIORequestT *write_req);
   void append_scheduled_ops(void);
 
@@ -874,22 +939,24 @@ private:
 
   void schedule_flush_and_append(GenericLogOperationsVectorT &ops);
 
-  //  Flush the pmem regions for the data blocks of a set of operations
+  /*  Flush the pmem regions for the data blocks of a set of operations */
   template <typename V>
-  void flush_pmem_buffer(V& ops); // flush pmem region : WriteLogEntry.pmem_buffer --> pmem ...sdh
-
-// ===================================
+  void flush_pmem_buffer(V& ops); 
 
   // Allocate the (already reserved) write log entries for a set of operations.
   void alloc_op_log_entries(GenericLogOperationsT &ops);
-  // Flush the persistent write log entries set of ops. The entries must be contiguous in persistent memory.
+
+  /* Flush the persistent write log entries set of ops. The entries must be contiguous in persistent memory. */
   void flush_op_log_entries(GenericLogOperationsVectorT &ops);
-  /* Write and persist the (already allocated) write log entries and
-   * data buffer allocations for a set of ops. The data buffer for each
-   * of these must already have been persisted to its reserved area. */
+
+  /* Write and persist the (already allocated) write log entries and data buffer allocations for a set of ops. 
+   *
+   * The data buffer for each of these must already have been persisted to its reserved area. */
   int append_op_log_entries(GenericLogOperationsT &ops);
+
   /* Complete a set of write ops with the result of append_op_entries.*/
   void complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
+
   /* Push op log entry completion to a WQ. */
   void schedule_complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
 
