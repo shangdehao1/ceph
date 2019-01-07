@@ -64,6 +64,14 @@ int ObjectCacheFile::read_object_from_file(ceph::bufferlist* read_buf, uint64_t 
     return -1;
   }
 
+  if(object_off >= m_buffer.length()) { 
+    return 0;
+  }
+
+  if((m_buffer.length() - object_off) < object_len) {
+    object_len = m_buffer.length() - object_off;
+  }
+
   read_buf->substr_of(m_buffer, object_off, object_len); 
 
   return read_buf->length();
