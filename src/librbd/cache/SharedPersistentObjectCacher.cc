@@ -32,7 +32,9 @@ SharedPersistentObjectCacher<I>::~SharedPersistentObjectCacher() {
 }
 
 template <typename I>
-int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferlist* read_data, uint64_t offset, uint64_t length, Context *on_finish) {
+int SharedPersistentObjectCacher<I>::read_object(
+        std::string oid, ceph::bufferlist* read_data,
+        uint64_t offset, uint64_t length, Context *on_finish) {
 
   auto *cct = m_image_ctx->cct;
   ldout(cct, 20) << "object: " << oid << dendl;
@@ -51,7 +53,6 @@ int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferli
   ObjectCacheFile* target_cache_file;
   if (file_map.find(cache_file_path) == file_map.end()) {
     target_cache_file = new ObjectCacheFile(cct, cache_file_path);
-    target_cache_file->open_file();
     file_map[cache_file_path] = target_cache_file;
   } else {
     target_cache_file = file_map[cache_file_path];
@@ -62,9 +63,18 @@ int SharedPersistentObjectCacher<I>::read_object(std::string oid, ceph::bufferli
     ldout(cct, 5) << "read from file return error: " << ret
                   << "file name= " << cache_file_name
                   << dendl;
+    return ret;
   }
 
-  return ret;
+  if(ret != length) {
+    ceph_assert(ret < length);
+    read_data->append("0", length - ret);
+    ceph_assert(read_data->length() == length);
+  }
+
+  ceph_assert(read_data->length() == length);
+
+  return length;
 }
 
 

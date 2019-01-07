@@ -95,6 +95,7 @@ bool SharedReadOnlyObjectDispatch<I>::read(
     // TODO(): fix domain socket error
   }
 
+  // TODO move all these data member to message....sdh
   auto ctx = new FunctionContext([this, oid, object_off, object_len,
     read_data, dispatch_result, on_dispatched](bool cache) {
     handle_read_cache(cache, oid, object_off, object_len,
