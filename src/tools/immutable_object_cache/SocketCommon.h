@@ -4,6 +4,7 @@
 #ifndef CEPH_CACHE_SOCKET_COMMON_H
 #define CEPH_CACHE_SOCKET_COMMON_H
 
+#include "include/Context.h"
 #include "include/types.h"
 #include "include/encoding.h"
 #include "include/int_types.h"
@@ -19,8 +20,16 @@ static const int RBDSC_READ_REPLY      =  0X15;
 static const int RBDSC_LOOKUP_REPLY    =  0X16;
 static const int RBDSC_READ_RADOS      =  0X17;
 
+static const int ASIO_ERROR_READ = 0X01;
+static const int ASIO_ERROR_WRITE = 0X02;
+static const int ASIO_ERROR_CONNECT = 0X03;
+static const int ASIO_ERROR_ACCEPT = 0X04;
+static const int ASIO_ERROR_MSG_INCOMPLETE = 0X05;
 
 
+class ObjectCacheRequest;
+
+typedef std::function<void(uint64_t, ObjectCacheRequest*)> NewProcessMsg;
 typedef std::function<void(uint64_t, std::string)> ProcessMsg;
 typedef std::function<void(std::string)> ClientProcessMsg;
 typedef uint8_t rbdsc_req_type;
@@ -122,6 +131,8 @@ public:
     bufferlist m_head_buffer;
     bufferlist m_mid_buffer;
     bufferlist m_data_buffer;
+  
+    Context* m_on_finish;
 
     ObjectCacheRequest() {}
     ~ObjectCacheRequest() {}
@@ -164,6 +175,11 @@ inline ObjectCacheRequest* decode_object_cache_request(
   req->m_mid.decode(mid_buffer);
 
   return req;
+}
+
+inline ObjectCacheRequest* decode_object_cache_request(
+             bufferlist head_buffer, bufferlist mid_buffer) {
+  return decode_object_cache_request((ObjectCacheMsgHeader*)(head_buffer.c_str()), mid_buffer);
 }
 
 inline ObjectCacheRequest* decode_object_cache_request(

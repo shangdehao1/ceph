@@ -48,8 +48,12 @@ void CacheController::run() {
     std::string controller_path = m_cct->_conf.get_val<std::string>("immutable_object_cache_sock");
     std::remove(controller_path.c_str());
 
+    // TODO delete it
+    // TODO remove ProcessMsg
+    //m_cache_server = new CacheServer(m_cct, controller_path,
+    //  ([&](uint64_t p, std::string s){handle_request(p, s);}));
     m_cache_server = new CacheServer(m_cct, controller_path,
-      ([&](uint64_t p, std::string s){handle_request(p, s);}));
+      ([&](uint64_t p, ObjectCacheRequest* s){handle_request(p, s);}));
 
     int ret = m_cache_server->run();
     if (ret != 0) {
@@ -60,6 +64,7 @@ void CacheController::run() {
   }
 }
 
+// TODO : msg --> bufferlist
 void CacheController::handle_request(uint64_t session_id, std::string msg){
   ldout(m_cct, 20) << dendl;
 
@@ -87,7 +92,36 @@ void CacheController::handle_request(uint64_t session_id, std::string msg){
       break;
     }
     ldout(m_cct, 5) << "can't recongize request" << dendl;
-    assert(0); // TODO replace it.
+    ceph_assert(0); // TODO replace it.
+  }
+}
+
+void CacheController::handle_request(uint64_t session_id, ObjectCacheRequest* req){
+  ldout(m_cct, 20) << dendl;
+
+  switch (req->m_head.type) {
+    case RBDSC_REGISTER: {
+      // init cache layout for volume
+      m_object_cache_store->init_cache();
+      req->m_head.type = RBDSC_REGISTER_REPLY;
+      m_cache_server->send(session_id, req);
+
+      break;
+    }
+    case RBDSC_READ: {
+      // lookup object in local cache store
+      int ret = m_object_cache_store->lookup_object(req->m_mid.m_pool_name, req->m_mid.m_oid);
+      if (ret < 0) {
+        req->m_head.type = RBDSC_READ_RADOS;
+      } else {
+        req->m_head.type = RBDSC_READ_REPLY;
+      }
+      m_cache_server->send(session_id, req);
+
+      break;
+    }
+    ldout(m_cct, 5) << "can't recongize request" << dendl;
+    ceph_assert(0); // TODO replace it.
   }
 }
 

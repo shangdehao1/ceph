@@ -39,6 +39,14 @@ class CacheServer {
   stream_protocol::acceptor m_acceptor;
   uint64_t m_session_id = 1;
   std::map<uint64_t, CacheSessionPtr> m_session_map;
+public:
+  // TODO
+  CacheServer(CephContext* cct, const std::string& file, NewProcessMsg processmsg);
+  NewProcessMsg m_new_process_msg;
+  bool m_new;
+  void send(uint64_t session_id, ObjectCacheRequest* msg);
+  
+
 };
 
 } // namespace immutable_obj_cache

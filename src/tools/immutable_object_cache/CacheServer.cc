@@ -18,8 +18,14 @@ namespace immutable_obj_cache {
 
 CacheServer::CacheServer(CephContext* cct, const std::string& file,
                          ProcessMsg processmsg)
-  : cct(cct), m_server_process_msg(processmsg),
+  : cct(cct), m_server_process_msg(processmsg), m_new(false),
     m_local_path(file), m_acceptor(m_io_service) {}
+
+CacheServer::CacheServer(CephContext* cct, const std::string& file,
+                         NewProcessMsg processmsg)
+  : cct(cct), m_new_process_msg(processmsg), m_new(true),
+    m_local_path(file), m_acceptor(m_io_service) {}
+
 
 CacheServer::~CacheServer() {
   stop();
@@ -86,9 +92,15 @@ int CacheServer::start_accept() {
 }
 
 void CacheServer::accept() {
+  CacheSessionPtr new_session = nullptr;
 
-  CacheSessionPtr new_session(new CacheSession(m_session_id, m_io_service,
-                                               m_server_process_msg, cct));
+  // TODO 
+  if(m_new) {
+    new_session.reset(new CacheSession(m_session_id, m_io_service, m_new_process_msg, cct));
+  } else {
+    new_session.reset(new CacheSession(m_session_id, m_io_service, m_server_process_msg, cct));
+  }
+
   m_acceptor.async_accept(new_session->socket(),
       boost::bind(&CacheServer::handle_accept, this, new_session,
         boost::asio::placeholders::error));
@@ -97,6 +109,7 @@ void CacheServer::accept() {
 void CacheServer::handle_accept(CacheSessionPtr new_session,
                                 const boost::system::error_code& error) {
   ldout(cct, 20) << dendl;
+  std::cout << "new session have arrived....." << std::endl;
   if (error) {
     // operation_absort
     lderr(cct) << "async accept fails : " << error.message() << dendl;
@@ -105,12 +118,28 @@ void CacheServer::handle_accept(CacheSessionPtr new_session,
 
   m_session_map.emplace(m_session_id, new_session);
   // TODO : session setting
-  new_session->start();
+  // TODO 
+  new_session->new_start();
   m_session_id++;
 
   // lanuch next accept
   accept();
 }
+
+// ===================
+
+void CacheServer::send(uint64_t session_id, ObjectCacheRequest* msg) {
+  ldout(cct, 20) << dendl;
+
+  auto it = m_session_map.find(session_id);
+  if (it != m_session_map.end()) {
+    it->second->send(msg);
+  } else {
+    ldout(cct, 20) << "missing reply session id" << dendl;
+    assert(0);
+  }
+}
+
 
 } // namespace immutable_obj_cache
 } // namespace ceph

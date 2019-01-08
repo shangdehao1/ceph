@@ -25,7 +25,9 @@ class CacheController {
 
   void run();
 
+  void handle_request(uint64_t sesstion_id, ObjectCacheRequest* msg);
   void handle_request(uint64_t sesstion_id, std::string msg);
+
 
  private:
   CacheServer *m_cache_server;

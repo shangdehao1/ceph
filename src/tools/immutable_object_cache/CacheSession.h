@@ -38,6 +38,22 @@ private:
 public:
   void send(std::string msg);
 
+
+
+// =======================
+  CacheSession(uint64_t session_id, io_service& io_service, NewProcessMsg process_msg, CephContext* ctx);
+  void new_start();
+  void read_request_header();
+  void handle_request_header(const boost::system::error_code& err, size_t bytes_transferred);
+  void read_request_mid(uint64_t mid_len);
+  void handle_request_mid(bufferptr bp, uint64_t mid_len, 
+                          const boost::system::error_code& err, size_t bytes_transferred);
+
+  void process(ObjectCacheRequest* req);
+  void fault();
+  void send(ObjectCacheRequest* msg);
+
+
 private:
   uint64_t m_session_id;
   stream_protocol::socket m_dm_socket;
@@ -47,6 +63,12 @@ private:
   // Buffer used to store data received from the client.
   //std::array<char, 1024> data_;
   char m_buffer[1024];
+
+  // 
+  char* m_head_buffer;
+  NewProcessMsg m_new_process_msg;
+  bool if_new;
+
 };
 
 typedef std::shared_ptr<CacheSession> CacheSessionPtr;

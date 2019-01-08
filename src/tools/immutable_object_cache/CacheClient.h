@@ -11,6 +11,7 @@
 #include <boost/algorithm/string.hpp>
 #include "include/ceph_assert.h"
 #include "include/Context.h"
+#include "common/Mutex.h"
 #include "SocketCommon.h"
 
 
@@ -34,6 +35,15 @@ public:
   int lookup_object(std::string pool_name, std::string object_id, Context* on_finish);
   void get_result(Context* on_finish);
 
+  // ====
+  void new_lookup_object(std::string pool_name, std::string object_id, Context* on_finish, bufferlist* bl=nullptr);
+  void send_message();
+  void try_send();
+  void fault(const int err_type, const boost::system::error_code& err);
+  void try_receive();
+  void receive_message();
+  int new_register_client(Context* on_finish);
+
 private:
   boost::asio::io_service m_io_service;
   boost::asio::io_service::work m_io_service_work;
@@ -48,6 +58,18 @@ private:
   // thread 2 : librbd read it.
   std::atomic<bool> m_session_work;
   CephContext* cct;
+
+// ===== 
+
+  char* m_header_buffer;
+  std::atomic<bool> m_writing;
+  std::atomic<bool> m_reading;
+  std::atomic<uint64_t> m_sequence_id;
+  Mutex m_lock;
+  bufferlist m_outcoming_bl;
+  Mutex m_sequence_id_lock;
+  Mutex m_map_lock;
+  std::map<uint64_t, ObjectCacheRequest*> m_seq_to_req;
 };
 
 } // namespace immutable_obj_cache
