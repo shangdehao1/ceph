@@ -7,6 +7,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/error.hpp>
 
+#include "Types.h"
 #include "SocketCommon.h"
 #include "CacheSession.h"
 
@@ -23,7 +24,6 @@ class CacheServer {
   ~CacheServer();
 
   int run();
-  void send(uint64_t session_id, std::string msg);
   int start_accept();
   int stop();
 
@@ -39,6 +39,8 @@ class CacheServer {
   stream_protocol::acceptor m_acceptor;
   uint64_t m_session_id = 1;
   std::map<uint64_t, CacheSessionPtr> m_session_map;
+public:
+  void send(uint64_t session_id, ObjectCacheRequest* msg);
 };
 
 } // namespace immutable_obj_cache
