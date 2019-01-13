@@ -18,9 +18,15 @@ static const int RBDSC_READ_REPLY      =  0X15;
 static const int RBDSC_LOOKUP_REPLY    =  0X16;
 static const int RBDSC_READ_RADOS      =  0X17;
 
+static const int ASIO_ERROR_READ = 0X01;
+static const int ASIO_ERROR_WRITE = 0X02;
+static const int ASIO_ERROR_CONNECT = 0X03;
+static const int ASIO_ERROR_ACCEPT = 0X04;
+static const int ASIO_ERROR_MSG_INCOMPLETE = 0X05;
 
+class ObjectCacheRequest;
 
-typedef std::function<void(uint64_t, std::string)> ProcessMsg;
+typedef std::function<void(uint64_t, ObjectCacheRequest*)> ProcessMsg;
 typedef std::function<void(std::string)> ClientProcessMsg;
 typedef uint8_t rbdsc_req_type;
 
