@@ -95,11 +95,13 @@ bool SharedReadOnlyObjectDispatch<I>::read(
     // TODO(): fix domain socket error
   }
 
-  // TODO move all these data member to message....sdh
-  auto ctx = new FunctionContext([this, oid, object_off, object_len,
-    read_data, dispatch_result, on_dispatched](bool cache) {
-    handle_read_cache(cache, oid, object_off, object_len,
-                      read_data, dispatch_result, on_dispatched);
+  auto ctx = new LambdaGenContext<std::function<void(ObjectCacheRequest*)>,
+      ObjectCacheRequest*>([this, read_data, dispatch_result, on_dispatched,
+      oid, object_off, object_len](ObjectCacheRequest* ack) {
+    ceph_assert(oid == ack->m_data.m_oid);
+    handle_read_cache(ack->m_head.type == RBDSC_READ_REPLY,
+                      oid, object_off, object_len, read_data,
+                      dispatch_result, on_dispatched);
   });
 
   if (m_cache_client && m_cache_client->is_session_work() && m_object_store) {
