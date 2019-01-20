@@ -85,6 +85,7 @@ void CacheServer::accept() {
 
 void CacheServer::handle_accept(CacheSessionPtr new_session,
                                 const boost::system::error_code& error) {
+  std::cout << "new session arrived..." << std::endl;
   ldout(cct, 20) << dendl;
   if (error) {
     // operation_absort

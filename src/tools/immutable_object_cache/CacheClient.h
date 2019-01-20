@@ -40,6 +40,18 @@ public:
   void receive_message();
   int register_client(Context* on_finish);
 
+  void process(ObjectCacheRequest* reply, uint64_t seq_id);
+  void new_receive_message();
+  void read_reply_header();
+  void handle_reply_header(bufferptr bp_head, 
+                           const boost::system::error_code& ec, size_t bytes_transferred);
+  void read_reply_data(bufferptr&& bp_head, bufferptr&& bp_data, 
+                       const uint64_t data_len, const uint64_t seq_id);
+  void handle_reply_data(bufferptr bp_head, bufferptr bp_data, 
+                        const uint64_t data_len, const uint64_t seq_id, 
+                        const boost::system::error_code& ec, size_t bytes_transferred);
+
+
 private:
   CephContext* cct;
   boost::asio::io_service m_io_service;

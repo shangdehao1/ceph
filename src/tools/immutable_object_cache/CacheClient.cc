@@ -107,24 +107,21 @@ namespace immutable_obj_cache {
     req->m_head.version = 0;
     req->m_head.reserved = 0;
     req->m_head.type = RBDSC_READ;
+    req->m_head.padding = 0;
+    req->m_head.seq = ++m_sequence_id;
+
     req->m_data.m_pool_name = pool_name;
     req->m_data.m_oid = oid;
     req->m_process_msg = on_finish;
-
-    req->m_head.seq = m_sequence_id++;
     req->encode();
 
     ceph_assert(req->get_head_buffer().length() == sizeof(ObjectCacheMsgHeader));
     ceph_assert(req->get_data_buffer().length() == req->m_head.data_len);
 
-    {
+   {
       Mutex::Locker locker(m_lock);
       m_outcoming_bl.append(req->get_head_buffer());
       m_outcoming_bl.append(req->get_data_buffer());
-    }
-
-    {
-      Mutex::Locker locker(m_map_lock);
       ceph_assert(m_seq_to_req.find(req->m_head.seq) == m_seq_to_req.end());
       m_seq_to_req[req->m_head.seq] = req;
     }
@@ -179,7 +176,7 @@ namespace immutable_obj_cache {
   void CacheClient::try_receive() {
     if(!m_reading.load()) {
       m_reading.store(true);
-      receive_message();
+      new_receive_message();
     }
   }
 
@@ -205,6 +202,7 @@ namespace immutable_obj_cache {
         ObjectCacheMsgHeader* head = (ObjectCacheMsgHeader*)bp_head.c_str();
         uint64_t data_len = head->data_len;
         uint64_t seq_id = head->seq;
+
         bufferptr bp_data(buffer::create(data_len));
 
         boost::asio::async_read(m_dm_socket,
@@ -230,16 +228,23 @@ namespace immutable_obj_cache {
             data_buffer.clear();
             ceph_assert(data_buffer.length() == 0);
 
-            auto process_current_reply = m_seq_to_req[ack->m_head.seq]->m_process_msg;
+            ObjectCacheRequest* current_request = nullptr;
+            {
+              Mutex::Locker locker(m_lock);
+              ceph_assert(m_seq_to_req.find(seq_id) != m_seq_to_req.end());
+              current_request = m_seq_to_req[seq_id];
+              m_seq_to_req.erase(seq_id);
+            }
 
             // if hit, this context will read file from local cache.
-            auto user_ctx = new FunctionContext([this, ack, process_current_reply]
+            auto user_ctx = new FunctionContext([this, ack, current_request]
                (bool dedicated) {
               if(dedicated) {
                 // current thread belog to worker.
               }
 
-              process_current_reply->complete(ack);
+              current_request->m_process_msg->complete(ack);
+              delete current_request;
               delete ack;
             });
 
@@ -257,20 +262,137 @@ namespace immutable_obj_cache {
 
             {
               Mutex::Locker locker(m_map_lock);
-              ceph_assert(m_seq_to_req.find(seq_id) != m_seq_to_req.end());
-              delete m_seq_to_req[seq_id];
-              m_seq_to_req.erase(seq_id);
-              if(m_seq_to_req.size() == 0) {
+              if(m_seq_to_req.size() == 0 && m_outcoming_bl.length() == 0) {
                 m_reading.store(false);
                 return;
               }
             }
 
-            receive_message();
+            if(is_session_work()) {
+              receive_message();
+            }
         });
     });
   }
 
+  void CacheClient::new_receive_message() {
+    ceph_assert(m_reading.load());
+    read_reply_header();
+  }
+
+  void CacheClient::read_reply_header() {
+
+    /* one head buffer for all arrived reply. */
+    // bufferptr bp_head(buffer::create_static(sizeof(ObjectCacheMsgHeader), m_header_buffer));
+
+    /* create new head buffer for every reply */
+    bufferptr bp_head(buffer::create(sizeof(ObjectCacheMsgHeader)));
+    auto raw_ptr = bp_head.c_str();
+
+    boost::asio::async_read(m_dm_socket,
+      boost::asio::buffer(raw_ptr, sizeof(ObjectCacheMsgHeader)),
+      boost::asio::transfer_exactly(sizeof(ObjectCacheMsgHeader)),
+      boost::bind(&CacheClient::handle_reply_header,
+                  this, bp_head,
+                  boost::asio::placeholders::error,
+                  boost::asio::placeholders::bytes_transferred));
+  }
+
+  void CacheClient::handle_reply_header(bufferptr bp_head,
+                                        const boost::system::error_code& ec,
+                                        size_t bytes_transferred) {
+    if(ec || bytes_transferred != sizeof(ObjectCacheMsgHeader)) {
+      fault(ASIO_ERROR_READ, ec);
+      return;
+    }
+
+    ceph_assert(bytes_transferred == bp_head.length());
+
+    ObjectCacheMsgHeader* head = (ObjectCacheMsgHeader*)bp_head.c_str();
+    uint64_t data_len = head->data_len;
+    uint64_t seq_id = head->seq;
+    ceph_assert(m_seq_to_req.find(seq_id) != m_seq_to_req.end());
+
+    bufferptr bp_data(buffer::create(data_len));
+    read_reply_data(std::move(bp_head), std::move(bp_data), data_len, seq_id);
+  }
+
+  void CacheClient::read_reply_data(bufferptr&& bp_head, bufferptr&& bp_data,
+                                    const uint64_t data_len, const uint64_t seq_id) {
+
+    auto raw_ptr = bp_data.c_str();
+    boost::asio::async_read(m_dm_socket, boost::asio::buffer(raw_ptr, data_len),
+      boost::asio::transfer_exactly(data_len),
+      boost::bind(&CacheClient::handle_reply_data,
+                  this, std::move(bp_head), std::move(bp_data), data_len, seq_id,
+                  boost::asio::placeholders::error,
+                  boost::asio::placeholders::bytes_transferred));
+
+  }
+
+  void CacheClient::handle_reply_data(bufferptr bp_head, bufferptr bp_data,
+                                      const uint64_t data_len, const uint64_t seq_id,
+                                      const boost::system::error_code& ec,
+                                      size_t bytes_transferred) {
+    if (ec || bytes_transferred != data_len) {
+      fault(ASIO_ERROR_WRITE, ec);
+      return;
+    }
+
+    bufferlist head_buffer;
+    bufferlist data_buffer;
+    head_buffer.append(std::move(bp_head));
+    data_buffer.append(std::move(bp_data));
+    ceph_assert(head_buffer.length() == sizeof(ObjectCacheMsgHeader));
+    ceph_assert(data_buffer.length() == data_len);
+
+    ObjectCacheRequest* reply = decode_object_cache_request(head_buffer, data_buffer);
+    data_buffer.clear();
+    ceph_assert(data_buffer.length() == 0);
+ 
+    process(reply, seq_id);
+
+    {
+      Mutex::Locker locker(m_lock);
+      if(m_seq_to_req.size() == 0 && m_outcoming_bl.length()) {
+        m_reading.store(false);
+        return;
+      }
+    }
+    if(is_session_work()) {
+      new_receive_message();
+    }
+    
+  }
+
+  void CacheClient::process(ObjectCacheRequest* reply, uint64_t seq_id) {
+    ObjectCacheRequest* current_request = nullptr;
+    {
+      Mutex::Locker locker(m_lock);
+      ceph_assert(m_seq_to_req.find(seq_id) != m_seq_to_req.end());
+      current_request = m_seq_to_req[seq_id];
+      m_seq_to_req.erase(seq_id);
+    }
+
+    ceph_asert(current_request != nullptr);
+    auto process_reply = new FunctionContext([this, current_request, reply]
+      (bool dedicated) {
+       if(dedicated) {
+         // dedicated thrad to execute this context.
+       }
+       current_request->m_process_msg->complete(reply);
+       delete current_request;
+       delete reply;
+    });
+
+    if(m_use_dedicated_worker) {
+      m_worker->post([process_reply]() {
+        process_reply->complete(true);
+      });
+    } else {
+      process_reply->complete(false);
+    }
+  }
 
   void CacheClient::fault(const int err_type, const boost::system::error_code& ec) {
     ldout(cct, 20) << "fault." << ec.message() << dendl;
@@ -297,7 +419,7 @@ namespace immutable_obj_cache {
 
     if(err_type == ASIO_ERROR_WRITE) {
        ldout(cct, 20) << "ASIO asyn write fails : " << ec.message() << dendl;
-       // should not occur this error.
+       // CacheClient should not occur this error.
        ceph_assert(0);
     }
 
@@ -305,9 +427,8 @@ namespace immutable_obj_cache {
        ldout(cct, 20) << "ASIO async connect fails : " << ec.message() << dendl;
     }
 
-    // TODO : currently, for any asio error, just shutdown RO.
-    // TODO : re-write close / shutdown/
-    //close();
+    // currently, for any asio error, just shutdown RO.
+    close();
 
     // all pending request, which have entered into ASIO, will be re-dispatched to RADOS.
     {
@@ -319,7 +440,8 @@ namespace immutable_obj_cache {
       m_seq_to_req.clear();
     }
 
-    //m_outcoming_bl.clear();
+    ldout(cct, 20) << "Because ASIO fails, just shutdown RO. Later all reading \
+                       will be re-dispatched RADOS layer"  << ec.message() << dendl;
   }
 
 

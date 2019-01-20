@@ -91,8 +91,7 @@ bool SharedReadOnlyObjectDispatch<I>::read(
     ldout(cct, 5) << "SRO cache client session failed " << dendl;
     *dispatch_result = io::DISPATCH_RESULT_CONTINUE;
     on_dispatched->complete(0);
-    return false;
-    // TODO(): fix domain socket error
+    return true;
   }
 
   auto ctx = new LambdaGenContext<std::function<void(ObjectCacheRequest*)>,

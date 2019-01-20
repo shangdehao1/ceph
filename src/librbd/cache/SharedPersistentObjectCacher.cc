@@ -72,8 +72,6 @@ int SharedPersistentObjectCacher<I>::read_object(
     ceph_assert(read_data->length() == length);
   }
 
-  ceph_assert(read_data->length() == length);
-
   return length;
 }
 

@@ -80,12 +80,13 @@ public:
     ObjectCacheRequest() {}
     ~ObjectCacheRequest() {}
     void encode() {
+      ceph_assert(m_head_buffer.length() == 0);
+      ceph_assert(m_data_buffer.length() == 0);
       m_data.encode(m_data_buffer);
       m_head.data_len = m_data_buffer.length();
-      m_head.data_len = m_data_buffer.length();
-      assert(m_head_buffer.length() == 0);
       m_head.encode(m_head_buffer);
-      assert(sizeof(ObjectCacheMsgHeader) == m_head_buffer.length());
+      ceph_assert(sizeof(ObjectCacheMsgHeader) == m_head_buffer.length());
+      ceph_assert(m_head.data_len == m_data_buffer.length());
     }
     bufferlist get_head_buffer() {
       return m_head_buffer;
