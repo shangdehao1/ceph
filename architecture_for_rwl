@@ -14,21 +14,6 @@ ImageWriteBack
   --> FileImageCache
         |
         --> ReplicatedWriteLOg
-              |
-              --> FileImageCache 
-                    |  
-                    --> BlockGuard m_block_guard 
-                    --> namespace::file
-                         |
-                         --> Policy --> StupidPolicy
-                         --> MetaStore 
-                         --> JournalStore
-                         --> ImageStore 
-                               |
-                               --> AioFile (own)           --> namely, m_metastore
-                               --> MetaStore (last layer)  --> namely, m_cache_file
-
-
 
 
 ================== aio write ========================
@@ -193,11 +178,11 @@ GenericLogEntry ------------------------------------> SyncPointLogEntry
                                      |                 
                                      |                 
                                      |
-                                     -------------> GeneralWriteLogEntry -----------------------------------> DiscardLogEntry
+                                     -------------> GeneralWriteLogEntry --------------------------------------------> DiscardLogEntry
                                                        |                                       |
-                                                       |--> uint32_t referring_map_entries     |
-                                                       |--> bool flushing                      |
-                                                       |--> bool flushed                       |
+                                                       ---> uint32_t referring_map_entries     |
+                                                       ---> bool flushing                      |
+                                                       ---> bool flushed                       |
                                                        |                                       ----------------------> WriteLogEntry ---------------------> WriteSameLogEntry
                                                        |                                                                 |                     
                                                        --> SyncPointLogEntry* sync_point_entry                           |                                                            
@@ -227,7 +212,7 @@ C_WriteRequest
                 |
                 ---> unsigned int allocation_size = 0;
                 |
-                ---> pobj_action buffer_alloc_action;
+                ---> pobj_action buffer_alloc_action; <----- publish
                 |
                 ---> TOID(uint8_t) buffer_oid = OID_NULL;   <----- ###
                 |
@@ -314,12 +299,12 @@ aio_write(bl) -------------> C_BlockIOReuqest ------------> GenericWriteLogOpera
                         |
         -----------------
         |
-rwl.alloc_and_dispatch_io_req (xxx_req)
+== alloc_and_dispatch_io_req (xxx_req) ==
         |
         |
-rwl.m_deffered_ios.empty()  ------------------------------->
+ m_deffered_ios.empty() ----------------------------------->
    |                                    no                 |
-   | yes                                                   v 
+   v yes                                                   v 
    |                                              fails    |
    --> == C_BlockIORequest->alloc_resource() == ---------->|
            |                                               |
@@ -547,94 +532,179 @@ C_FlushRequest::dispatch
 
 ====================== note ===============================
 
-how to judge current all clean : 
 
+                                      == aio_flush(on_finish) ==
+                                           |
+                                           --> flush_req = new C_FlushRequest(on_finish)
+                                           |
+                                           v
+                                ---------------------------------------------------------- block_guard
+                                           |
+                                           v
+                                           |
+                                      == flush_new_sync_point_if_needed(flush_req, later) ==
+                                                         |
+                                                         v
+                                                         |
+                                        rwl.m_current_sync_point->log_entry->m_writes        
+                                            |                                  |                                                    
+                                            | yes                           no |            
+                                            |                                  |           
+                                            |                                  |                                     
+                                            |                                  |
+                                            |               m_current_sync_point->earlier_sync_point
+                                            |                    |                         |
+                                            |                    | no                      | yes
+                                            |                    |                         |
+                                            v          later.add(flush_req)        m_current_sync_point->earlier_sync_point->m_on_sync_point_persisted.push_back(flush_req)
+                                            |                    |                                                            |
+                                            |        user thread |                                                            | which thread
+                                            |                    |                                                            |
+                                            |                    ------>-------------------------------------------------------
+                                            |                                            | 
+                                            |                                            | 
+                                            |                                 C_FlushRequest::complete
+                                            | 
+               ----------------<------------- 
+               |
+               |
+               |
+               |
+               v                           -----------------------> to_appending->m_prior_log_entries_persisted->activate()
+               v                           |
+               v                           -----------------------> to_appending->m_sync_point_persist->activate()
+               |                           |
+               |                           |
+      == flush_new_sync_point(flush_req, later)  ==
+           |  
+           --> new_sync_point(later)
+           |
+           --> to_appending->m_on_sync_pont_persisted.push_back(flush_req)
+           |  
+      == alloc_and_dispatch_io_req(flush_req) ==     
+           |   |  
+           v   --> == flush_req->alloc_resources ==
+           |         
+      == flush_req->dispatch ==  
+           |   | 
+           |   --> op = new SyncPointLogOperaion ==                            
+           |
+      == rwl.schedule_append(op) == 
+           |
+           --> == op->appending ==
+           |       |
+           |       --> #### op->sync_pont->m_on_sync_point_appending #### 
+           v 
+           |
+      == enlist_op_appender == 
+           |
+      == append_scheduled_ops ==  
+           | 
+           --> alloc_op_log_entries
+           | 
+           --> append_op_log_entries
+           | 
+           --> complete_op_log_entries 
+           |       | 
+           |       --> == op->complete() == 
+           |             |
+           |             ---> #### op->sync_point->m_on_sync_point_persisted ####
+           |                      |
+           |                      --> c_FlushRequest::complete
+           |  
+           |  
+        wakeup
+           |
+        process_work
 
+===========================================================================================================================
 
-
-
-
-
-
-
-
-How to flush all writes to OSD ?
-
-                                                        
-        
-        
-flush(...)
-  |
-internal_flush(on_finish, ....)
-  |
-  --> invadate_block_extent --> b_g_r = new GuardRequest 
-  |
-  --> detain_guard_request(b_g_r)
-  |
-  --> FunctionContext -->  flush_dirty_entries ----------------->-------------->-----------------------
-  |                                                                                                   |                                                  
-  --> FunctionContext : --> invadate                                                                  |                                  
-  |                           |                                                                       |                                  
-  |                           --> ture                                                                |                          
-  |                           |     |                                                                 |                                          
-  |                           |     --> retire_entries                                                |                                  
-  |                           |     |                                                                 |                                          
-  |                           |     --> m_image_writeback->invalidate                                 |                                          
-  |                           |                                                                       |                                                  
-  |                           --> false                                                               | flush all writes to OSD                         
-  |                                 |                                                                 |                          
-  |                                 --> m_image_writeback->flush                                      |                                                  
-  |                                                                                                   |                  
-  |                                                                                                   |                                                                          
-  --> FunctionContext --> release_guarded_request                                                     |                                  
-  |                                                                                                   |                                          
-  --> on_finish   <---- internal_flush's callback                                                     |                                                          
-                                                                                                      |              
-                                                                                                      |              
-  ------------<-------------------------<--------------------------------------<-----------------------                                                                                                                
-  |                                                                                                                                 
-flush_dirty_entries
-  |
-  |
---------------------------------------------------------------     all clean
-| m_log_dirty_entries.empty() ||  m_flush_ops_in_flight == 0 | -----------------> flush over
---------------------------------------------------------------
-  |
-  | dirty
-  |
-  --> m_flush_complete_contexts.push_back(flush_dirty_entries) 
-  | 
-  --> wakeup
+== flush ==
+    |
+    |
+== internal_flush(on_finish, ....) ==
         |
-        --> m_work_queue.queue(process_work)
-                                    |
-   ----------------------------------
-   |   
-process_work
+        --> invadate_block_extent --> b_g_r = new GuardRequest 
+        |
+        --> detain_guard_request(b_g_r)
+        |
+        --> FunctionContext -->  flush_dirty_entries ----------------->-------------->-----------------------
+        |                                                                                                   |                                                  
+        --> FunctionContext : --> invadate                                                                  |                                  
+        |                           |                                                                       |                                  
+        |                           --> ture                                                                |                          
+        |                           |     |                                                                 |                                          
+        |                           |     --> retire_entries                                                |                                  
+        |                           |     |                                                                 |                                          
+        |                           |     --> m_image_writeback->invalidate                                 |                                          
+        |                           |                                                                       |                                                  
+        |                           --> false                                                               | flush all writes to OSD                         
+        |                                 |                                                                 |                          
+        |                                 --> m_image_writeback->flush                                      |                                                  
+        |                                                                                                   |                  
+        |                                                                                                   |                                                                          
+        --> FunctionContext --> release_guarded_request                                                     |                                  
+        |                                                                                                   |                                          
+        --> on_finish   <---- internal_flush's callback                                                     |                                                          
+                                                                                                            |              
+                                                                                                            |              
+        ------------<-------------------------<--------------------------------------<-----------------------                                                                                                                
+        |                                                                                                                                 
+== flush_dirty_entries ==   <----------------<---------------------------------------------------------
+        |                                                                                             |
+        v                                                                                             |
+--------------------------------------------------------------       clean                            |
+| m_log_dirty_entries.empty() ||  m_flush_ops_in_flight == 0 | -----------------> flush over          |
+--------------------------------------------------------------                                        |
+             |                                                                                        |
+             v dirty                                                                                  |
+             |                                                                                        |
+             --> m_flush_complete_contexts.push_back(flush_dirty_entries) ------------>----------------
+             | 
+             --> == wakeup ==
+                   |
+                   --> m_work_queue.queue(process_work)
+                                               |
+        ----------------------------------------
+        |   
+== process_work ==
    |
-   --> retire_entries              <--------- release log resources.
+   --> == retire_entries ==           
    |
-   --> dispatch_deffered_writes    <------- if exist deferred write request, try to allocate resource, then dispatch it. 
+   --> == dispatch_deffered_writes == 
    |
-   --> process_writeback_dirty_entries
+   --> == process_writeback_dirty_entries ==
          |
-         --> construct_flush_entry_ctx()
-                |
-                --> m_image_writeback->aio_write     --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
-                |
-                --> m_image_writeback->aio_writesame --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
-                |
-                --> m_image_writeback->aio_discard   --> cb : m_image_writeback->aio_flush --> cb : sync_point_write_flushed
+         ---> == can_flush_entry ==
+         |             | 
+         v             v
+         |    == construct_flush_entry_ctx() ==
+         |         |
+         v         --> m_image_writeback->aio_write     --> cb : m_image_writeback->aio_flush --> cb : == sync_point_write_flushed == --> == wakeup ==
+         |         |
+         |         --> m_image_writeback->aio_writesame --> cb : m_image_writeback->aio_flush --> cb : == sync_point_write_flushed == --> == wakeup ==
+         v         |
+         |         --> m_image_writeback->aio_discard   --> cb : m_image_writeback->aio_flush --> cb : == sync_point_write_flushed == --> == wakeup ==
+         |                                                                                                      | 
+         ---> == finish_contexts(rwl.m_flush_complete_contexts) ==                                              | 
+                                                                                                                v 
                                                                                                                 | 
-                                                                                                                | 
-   -------------------------------------------------------------------------------------------<------------------ 
-   | 
-   |
-sync_point_write_flushed  <------------ all writes flushed for this sync point 
-   |
-handle_flushed_sync_point 
-   |
-   --> persist_last_flushed_sync_gen      <----------------update the last flushed sync point in the log
+        --------------------------------------------------------------------------------------<------------------ 
+        | 
+        v 
+== sync_point_write_flushed == 
+        |
+== handle_flushed_sync_point ==  <---------
+   |                                      | 
+   |                                      | yes
+   |                                      | 
+   --> if_have_next_sync_point ------>-----
+             |                    
+             | no
+             v 
+   == persist_last_flushed_sync_gen ==
+        | 
+        | transaction 
         | 
         -->  D_RW(pool_root)->flushed_sync_gen = m_flushed_sync_gen;
 
@@ -683,70 +753,100 @@ WriteRequestResources
 
 
 
-
-
 ========================================================================
+
+0 : reverser resource including log space and buffer space
+1 : copy data from mem to AEP
+
+2 : flush data buffer of AEP
+3 : alloc log entry of AEP to every operation
+4 : write log entry from mem to AEP 
+5 : flush AEP for log entry
+6 : modify pool root
 
 
 
  
-C_WriteRequest::schedule_append
+  C_WriteRequest::schedule_append
               |
+              v 
               |
+         m_do_early_flush
+              |
+              |             no
               ---------->------------------------
               |                                 |
               |                                 v 
               |                                 |
-              v                        schedule_flush_and_append
-              |                                 |
+              v                     == schedule_flush_and_append ==
+         yes  |                                 |
               |                                 v 
-              |                            enlist_op_flusher <-------------
-              |                                 |                         |
-              |                                 v                         |
-              |                       flush_then_append_scheduled_ops ---->
-              |                                 |
-              |                                 v 
-              v                                 |
-              |<---------------------------------                                
-              v                            
-              |                                    
-####### flush_pmem_buffer ###############
-              |
-              v 
-        schedule_append  ------------>
-              |                      | 
-              v                      v
-              |                      |
-        enlist_op_appender      op->appending
-              |
-              v 
- ------------------------------------------------------------- thread switch              
-              |
-              |
-        append_scheduled_ops 
-              |
-              |
-         alloc_op_log_entries
-              |
-              |
-        append_op_log_entries ---------------> ##### log : memory --> AEP #####
-              |                        | 
-              |                        ------> ##### flush_op_log_entries ######
-              |                                            |
-              |                                            ---> pmemobj_drain  
-              |                                            |       
-              |                                            ---> transaction        
-     complete_op_log_entries                                     
-              |                                      
-              |                                      
+              |                         == enlist_op_flusher == <---------------
+              |                                 |                              |
+              |                                 |                              |
+              |                            -------------                       |
+              |                                 |                              |
+              |                                 v                              |
+              |                  == flush_then_append_scheduled_ops == -------->
+              |                                 |       | 
+              |                                 v       ------------------->--------------
+              v                                 |                                        |       
+              |<-----------------<---------------                                        v                       
+              v                                                                          |       
+              |                                                                          |       
+## 2 ### == flush_pmem_buffer == ####                                                    |               
+              |                                                                          |       
+              v                                                                          |       
+ == rwl.schedule_append(ops) == ------->------                                           |       
+              |                              |                                           |               
+              v                              v                                           |       
+              |                              |                                           |       
+     == enlist_op_appender ==        == op->appending ==                                 |               
+              |                                                                          v               
+              v                                                                          |       
+ ------------------------------------------------------------- thread switch             |               
+              |                                                                          |       
+              |                                                                          |       
+    == append_scheduled_ops ==       <------------<---------------------------------------                                                                  
+          |
+          |
+          --> ## 3 ## == alloc_op_log_entries == ####
+          |
+          |
+          --> == append_op_log_entries == 
+          |         | 
+          |         ---> ## 4 ## *operation->get_log_entry()->pmem_entry = operation->get_log_entry()->ram_entry ####
+          |         | 
+          |         ---> ## 5 ## == flush_op_log_entries == ######
+          |         |               | 
+          |         |               --> pmemobj_flush(m_internal->m_log_pool, ops.front()->get_log_entry()->pmem_entry, ops.size() * sizeof(*(ops.front()->get_log_entry()->pmem_entry)))
+          |         |                
+          |         ---> pmemobj_drain  
+          |         |       
+          |         ---> transaction        
+          |               |
+          |               --> ## 6 ##  D_RW(pool_root)->first_free_entry = rwl.m_first_free_entry ##
+          |               |
+          |               --> pmemobj_tx_publish(&write_op->buffer_alloc->buffer_alloc_action, 1)
+          |
+          |
+          --> == complete_op_log_entries ==                                    
+                        |                                      
+                        v                                      
+                        |                                      
+              -----------                                      
+              |                                     
+              v                                      
   == GenericLogOperation->complete ==
+        |
+        v polymorphism
         |
         ---> SyncPointLogOperation::complete
         |        | 
         |        ---> SyncPointLogOperation::appending
         |        | 
         |        ---> rwl.handle_flushed_sync_point(sync_point->log_entry)
-        |        | 
+        v        | 
         |        ---> for( auto ctx : sync_point.m_on_sync_point_persisted ) 
         |                | 
         |                --> ctx->complete() 
@@ -765,6 +865,34 @@ C_WriteRequest::schedule_append
                 |
                 ---> on_write_persist->complete()
                       
+
+
+
+
+
+============================= stub to implement sequence =================================================================
+
+
+
+
+
+
+
+
+                +-------------+
+                |             |
+                |             |
+                |             |
+                |             |
+                +-------------+ 
+               
+
+
+
+            
+
+
+
 
 
 

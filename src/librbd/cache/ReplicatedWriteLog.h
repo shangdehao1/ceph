@@ -642,7 +642,7 @@ template <typename T>
 struct C_BlockIORequest;
 
 template <typename T>
-struct C _WriteRequest;
+struct C_WriteRequest;
 
 template <typename T>
 struct C_FlushRequest;
