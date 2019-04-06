@@ -18,7 +18,8 @@ namespace cache {
  * client-side, image extent cache interface
  */
 template <typename ImageCtxT = ImageCtx>
-class ImageCache {
+class ImageCache 
+{
 protected:
   ImageCache() {}
 public:
@@ -28,17 +29,21 @@ public:
 
   virtual ~ImageCache() {}
 
-  /// client AIO methods
   virtual void aio_read(Extents&& image_extents, ceph::bufferlist* bl,
                         int fadvise_flags, Context *on_finish) = 0;
+
   virtual void aio_write(Extents&& image_extents, ceph::bufferlist&& bl,
                          int fadvise_flags, Context *on_finish) = 0;
+
   virtual void aio_discard(uint64_t offset, uint64_t length,
                            bool skip_partial_discard, Context *on_finish) = 0;
+
   virtual void aio_flush(Context *on_finish) = 0;
+
   virtual void aio_writesame(uint64_t offset, uint64_t length,
                              ceph::bufferlist&& bl,
                              int fadvise_flags, Context *on_finish) = 0;
+
   virtual void aio_compare_and_write(Extents&& image_extents,
                                      ceph::bufferlist&& cmp_bl,
                                      ceph::bufferlist&& bl,

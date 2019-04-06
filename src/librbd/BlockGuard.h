@@ -20,7 +20,8 @@
 
 namespace librbd {
 
-struct BlockExtent {
+struct BlockExtent 
+{
   uint64_t block_start = 0;
   uint64_t block_end = 0;
 
@@ -38,7 +39,9 @@ struct BlockExtent {
   }
 };
 
-struct BlockGuardCell {
+struct BlockGuardCell 
+{
+  // 1 byte space
 };
 
 /**
@@ -68,9 +71,12 @@ public:
    *         >0 if the IO is blocked,
    *         <0 upon error
    */
-  int detain(const BlockExtent &block_extent, BlockOperation *block_operation,
-             BlockGuardCell **cell) {
+  int detain(const BlockExtent &block_extent, 
+             BlockOperation *block_operation,
+             BlockGuardCell **cell) 
+  {
     Mutex::Locker locker(m_lock);
+
     ldout(m_cct, 20) << "block_start=" << block_extent.block_start << ", "
                      << "block_end=" << block_extent.block_end << ", "
                      << "free_slots=" << m_free_detained_block_extents.size()
@@ -78,7 +84,8 @@ public:
 
     DetainedBlockExtent *detained_block_extent;
     auto it = m_detained_block_extents.find(block_extent);
-    if (it != m_detained_block_extents.end()) {
+    if (it != m_detained_block_extents.end()) 
+    {
       // request against an already detained block
       detained_block_extent = &(*it);
       if (block_operation != nullptr) {
@@ -89,12 +96,17 @@ public:
       // alert the caller that the IO was detained
       *cell = nullptr;
       return detained_block_extent->block_operations.size();
-    } else {
-      if (!m_free_detained_block_extents.empty()) {
+    }
+    else 
+    {
+      if (!m_free_detained_block_extents.empty()) 
+      {
         detained_block_extent = &m_free_detained_block_extents.front();
         detained_block_extent->block_operations.clear();
         m_free_detained_block_extents.pop_front();
-      } else {
+      } 
+      else 
+      {
         ldout(m_cct, 20) << "no free detained block cells" << dendl;
         m_detained_block_extent_pool.emplace_back();
         detained_block_extent = &m_detained_block_extent_pool.back();
@@ -110,12 +122,13 @@ public:
   /**
    * Release any detained IO operations from the provided cell.
    */
-  void release(BlockGuardCell *cell, BlockOperations *block_operations) {
+  void release(BlockGuardCell *cell, BlockOperations *block_operations) 
+  {
     Mutex::Locker locker(m_lock);
 
     ceph_assert(cell != nullptr);
-    auto &detained_block_extent = reinterpret_cast<DetainedBlockExtent &>(
-      *cell);
+    auto &detained_block_extent = reinterpret_cast<DetainedBlockExtent &>(*cell);
+
     ldout(m_cct, 20) << "block_start="
                      << detained_block_extent.block_extent.block_start << ", "
                      << "block_end="
@@ -131,6 +144,8 @@ public:
   }
 
 private:
+
+  // element of intrusive container
   struct DetainedBlockExtent : public boost::intrusive::list_base_hook<>,
                                public boost::intrusive::set_base_hook<> {
     BlockExtent block_extent;
@@ -156,7 +171,9 @@ private:
   };
 
   typedef std::deque<DetainedBlockExtent> DetainedBlockExtentsPool;
+
   typedef boost::intrusive::list<DetainedBlockExtent> DetainedBlockExtents;
+
   typedef boost::intrusive::set<
     DetainedBlockExtent,
     boost::intrusive::compare<DetainedBlockExtentCompare>,
@@ -166,6 +183,7 @@ private:
   CephContext *m_cct;
 
   Mutex m_lock;
+
   DetainedBlockExtentsPool m_detained_block_extent_pool;
   DetainedBlockExtents m_free_detained_block_extents;
   BlockExtentToDetainedBlockExtents m_detained_block_extents;

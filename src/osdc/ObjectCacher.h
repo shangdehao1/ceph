@@ -1,5 +1,3 @@
-// -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
-// vim: ts=8 sw=2 smarttab
 #ifndef CEPH_OBJECTCACHER_H
 #define CEPH_OBJECTCACHER_H
 
@@ -50,7 +48,8 @@ enum {
   l_objectcacher_last,
 };
 
-class ObjectCacher {
+class ObjectCacher 
+{
   PerfCounters *perfcounter;
  public:
   CephContext *cct;
@@ -61,7 +60,8 @@ class ObjectCacher {
   typedef void (*flush_set_callback_t) (void *p, ObjectSet *oset);
 
   // read scatter/gather
-  struct OSDRead {
+  struct OSDRead 
+  {
     vector<ObjectExtent> extents;
     snapid_t snap;
     bufferlist *bl;
@@ -70,12 +70,14 @@ class ObjectCacher {
       : snap(s), bl(b), fadvise_flags(f) {}
   };
 
-  OSDRead *prepare_read(snapid_t snap, bufferlist *b, int f) const {
+  OSDRead *prepare_read(snapid_t snap, bufferlist *b, int f) const 
+  {
     return new OSDRead(snap, b, f);
   }
 
   // write scatter/gather
-  struct OSDWrite {
+  struct OSDWrite 
+  {
     vector<ObjectExtent> extents;
     SnapContext snapc;
     bufferlist bl;
@@ -83,25 +85,21 @@ class ObjectCacher {
     int fadvise_flags;
     ceph_tid_t journal_tid;
     OSDWrite(const SnapContext& sc, const bufferlist& b, ceph::real_time mt,
-	     int f, ceph_tid_t _journal_tid)
-      : snapc(sc), bl(b), mtime(mt), fadvise_flags(f),
-	journal_tid(_journal_tid) {}
+             int f, ceph_tid_t _journal_tid)
+      : snapc(sc), bl(b), mtime(mt), fadvise_flags(f), journal_tid(_journal_tid) {}
   };
 
-  OSDWrite *prepare_write(const SnapContext& sc,
-			  const bufferlist &b,
-			  ceph::real_time mt,
-			  int f,
-			  ceph_tid_t journal_tid) const {
+  OSDWrite *prepare_write(const SnapContext& sc, const bufferlist &b,
+                          ceph::real_time mt, int f, ceph_tid_t journal_tid) const 
+  {
     return new OSDWrite(sc, b, mt, f, journal_tid);
   }
 
 
-
   // ******* BufferHead *********
-  class BufferHead : public LRUObject {
+  class BufferHead : public LRUObject 
+  {
   public:
-    // states
     static const int STATE_MISSING = 0;
     static const int STATE_CLEAN = 1;
     static const int STATE_ZERO = 2;   // NOTE: these are *clean* zeros
@@ -114,35 +112,35 @@ class ObjectCacher {
     // my fields
     int state;
     int ref;
+
+    // bh extent in object
     struct {
-      loff_t start, length;   // bh extent in object
+      loff_t start;  
+      loff_t length;
     } ex;
+
     bool dontneed; //indicate bh don't need by anyone
-    bool nocache; //indicate bh don't need by this caller
+    bool nocache;  //indicate bh don't need by this caller
 
   public:
     Object *ob;
     bufferlist  bl;
+
     ceph_tid_t last_write_tid;  // version of bh (if non-zero)
     ceph_tid_t last_read_tid;   // tid of last read op (if any)
     ceph::real_time last_write;
+
     SnapContext snapc;
     ceph_tid_t journal_tid;
+
     int error; // holds return value for failed reads
 
     map<loff_t, list<Context*> > waitfor_read;
 
-    // cons
-    explicit BufferHead(Object *o) :
-      state(STATE_MISSING),
-      ref(0),
-      dontneed(false),
-      nocache(false),
-      ob(o),
-      last_write_tid(0),
-      last_read_tid(0),
-      journal_tid(0),
-      error(0) {
+    explicit BufferHead(Object *o)
+      : state(STATE_MISSING), ref(0), dontneed(false), nocache(false),
+        ob(o), last_write_tid(0), last_read_tid(0), journal_tid(0), error(0) 
+    {
       ex.start = ex.length = 0;
     }
 
@@ -156,15 +154,18 @@ class ObjectCacher {
 
     // states
     void set_state(int s) {
-      if (s == STATE_RX || s == STATE_TX) get();
-      if (state == STATE_RX || state == STATE_TX) put();
+      if (s == STATE_RX || s == STATE_TX) {
+        get();
+      }
+      if (state == STATE_RX || state == STATE_TX) {
+        put();
+      }
       state = s;
     }
+
     int get_state() const { return state; }
 
-    inline ceph_tid_t get_journal_tid() const {
-      return journal_tid;
-    }
+    inline ceph_tid_t get_journal_tid() const { return journal_tid; }
     inline void set_journal_tid(ceph_tid_t _journal_tid) {
       journal_tid = _journal_tid;
     }
@@ -190,43 +191,44 @@ class ObjectCacher {
       return ref;
     }
 
-    void set_dontneed(bool v) {
-      dontneed = v;
-    }
-    bool get_dontneed() const {
-      return dontneed;
-    }
-
-    void set_nocache(bool v) {
-      nocache = v;
-    }
-    bool get_nocache() const {
-      return nocache;
-    }
+    void set_dontneed(bool v) { dontneed = v; }
+    bool get_dontneed() const { return dontneed; }
+    void set_nocache(bool v) { nocache = v; }
+    bool get_nocache() const { return nocache; }
 
     inline bool can_merge_journal(BufferHead *bh) const {
       return (get_journal_tid() == bh->get_journal_tid());
     }
 
-    struct ptr_lt {
-      bool operator()(const BufferHead* l, const BufferHead* r) const {
-	const Object *lob = l->ob;
-	const Object *rob = r->ob;
-	const ObjectSet *loset = lob->oset;
-	const ObjectSet *roset = rob->oset;
-	if (loset != roset)
-	  return loset < roset;
-	if (lob != rob)
-	  return lob < rob;
-	if (l->start() != r->start())
-	  return l->start() < r->start();
-	return l < r;
+    struct ptr_lt 
+    {
+      bool operator()(const BufferHead* l, const BufferHead* r) const 
+      {
+        const Object *lob = l->ob;
+        const Object *rob = r->ob;
+        const ObjectSet *loset = lob->oset;
+        const ObjectSet *roset = rob->oset;
+
+        if (loset != roset) {
+          return loset < roset;
+        }
+
+        if (lob != rob) {
+          return lob < rob;
+        }
+ 
+        if (l->start() != r->start()) {
+          return l->start() < r->start();
+        }
+
+        return l < r;
       }
     };
   };
 
   // ******* Object *********
-  class Object : public LRUObject {
+  class Object : public LRUObject 
+  {
   private:
     // ObjectCacher::Object fields
     int ref;
@@ -237,14 +239,18 @@ class ObjectCacher {
   public:
     uint64_t object_no;
     ObjectSet *oset;
+
     xlist<Object*>::item set_item;
+
     object_locator_t oloc;
-    uint64_t truncate_size, truncate_seq;
+
+    uint64_t truncate_size;
+    uint64_t truncate_seq;
 
     bool complete;
     bool exists;
 
-    map<loff_t, BufferHead*>     data;
+    map<loff_t, BufferHead*> data;
 
     ceph_tid_t last_write_tid;  // version of bh (if non-zero)
     ceph_tid_t last_commit_tid; // last update committed.
@@ -258,17 +264,15 @@ class ObjectCacher {
     Object& operator=(const Object&) = delete;
 
     Object(ObjectCacher *_oc, sobject_t o, uint64_t ono, ObjectSet *os,
-	   object_locator_t& l, uint64_t ts, uint64_t tq) :
-      ref(0),
-      oc(_oc),
-      oid(o), object_no(ono), oset(os), set_item(this), oloc(l),
-      truncate_size(ts), truncate_seq(tq),
-      complete(false), exists(true),
-      last_write_tid(0), last_commit_tid(0),
-      dirty_or_tx(0) {
+           object_locator_t& l, uint64_t ts, uint64_t tq) 
+     : ref(0), oc(_oc), oid(o), object_no(ono), oset(os), set_item(this), 
+       oloc(l), truncate_size(ts), truncate_seq(tq), complete(false), 
+       exists(true), last_write_tid(0), last_commit_tid(0), dirty_or_tx(0) 
+    {
       // add to set
       os->objects.push_back(&set_item);
     }
+
     ~Object() {
       reads.clear();
       ceph_assert(ref == 0);
@@ -289,9 +293,9 @@ class ObjectCacher {
 
     bool can_close() const {
       if (lru_is_expireable()) {
-	ceph_assert(data.empty());
-	ceph_assert(waitfor_commit.empty());
-	return true;
+        ceph_assert(data.empty());
+        ceph_assert(waitfor_commit.empty());
+        return true;
       }
       return false;
     }
@@ -310,30 +314,38 @@ class ObjectCacher {
      * @param offset object byte offset
      * @return iterator pointing to buffer, or data.end()
      */
-    map<loff_t,BufferHead*>::const_iterator data_lower_bound(loff_t offset) const {
-      map<loff_t,BufferHead*>::const_iterator p = data.lower_bound(offset);
-      if (p != data.begin() &&
-	  (p == data.end() || p->first > offset)) {
+    map<loff_t,BufferHead*>::const_iterator data_lower_bound(loff_t offset) const 
+    {
+      map<loff_t, BufferHead*>::const_iterator p = data.lower_bound(offset);
+      if (p != data.begin() && (p == data.end() || p->first > offset)) 
+      {
 	--p;     // might overlap!
-	if (p->first + p->second->length() <= offset)
-	  ++p;   // doesn't overlap.
+        if (p->first + p->second->length() <= offset) {
+          ++p;   // doesn't overlap.
+        }
       }
       return p;
     }
 
     // bh
     // add to my map
-    void add_bh(BufferHead *bh) {
-      if (data.empty())
-	get();
+    void add_bh(BufferHead *bh) 
+    {
+      if (data.empty()) {
+        get();
+      }
+
       ceph_assert(data.count(bh->start()) == 0);
       data[bh->start()] = bh;
     }
-    void remove_bh(BufferHead *bh) {
+
+    void remove_bh(BufferHead *bh) 
+    {
       ceph_assert(data.count(bh->start()));
       data.erase(bh->start());
-      if (data.empty())
-	put();
+      if (data.empty()) {
+        put();
+      }
     }
 
     bool is_empty() const { return data.empty(); }
@@ -346,12 +358,15 @@ class ObjectCacher {
     void maybe_rebuild_buffer(BufferHead *bh);
 
     bool is_cached(loff_t off, loff_t len) const;
+
     bool include_all_cached_data(loff_t off, loff_t len);
+
     int map_read(ObjectExtent &ex,
                  map<loff_t, BufferHead*>& hits,
                  map<loff_t, BufferHead*>& missing,
                  map<loff_t, BufferHead*>& rx,
-		 map<loff_t, BufferHead*>& errors);
+                 map<loff_t, BufferHead*>& errors);
+
     BufferHead *map_write(ObjectExtent &ex, ceph_tid_t tid);
 
     void replace_journal_tid(BufferHead *bh, ceph_tid_t tid);
@@ -359,23 +374,29 @@ class ObjectCacher {
     void discard(loff_t off, loff_t len, C_GatherBuilder* commit_gather);
 
     // reference counting
-    int get() {
+    int get() 
+    {
       ceph_assert(ref >= 0);
-      if (ref == 0) lru_pin();
+      if (ref == 0) { 
+        lru_pin();
+      }
       return ++ref;
     }
-    int put() {
+
+    int put() 
+    {
       ceph_assert(ref > 0);
-      if (ref == 1) lru_unpin();
+      if (ref == 1) { 
+        lru_unpin();
+      }
       --ref;
       return ref;
     }
   };
 
-
-  struct ObjectSet {
+  struct ObjectSet 
+  {
     void *parent;
-
     inodeno_t ino;
     uint64_t truncate_seq, truncate_size;
 
@@ -386,9 +407,8 @@ class ObjectCacher {
     bool return_enoent;
 
     ObjectSet(void *p, int64_t _poolid, inodeno_t i)
-      : parent(p), ino(i), truncate_seq(0),
-	truncate_size(0), poolid(_poolid), dirty_or_tx(0),
-	return_enoent(false) {}
+      : parent(p), ino(i), truncate_seq(0), truncate_size(0),
+        poolid(_poolid), dirty_or_tx(0), return_enoent(false) {}
 
   };
 
@@ -402,7 +422,11 @@ class ObjectCacher {
   string name;
   Mutex& lock;
 
-  uint64_t max_dirty, target_dirty, max_size, max_objects;
+  uint64_t max_dirty;
+  uint64_t target_dirty;
+  uint64_t max_size;
+  uint64_t max_objects;
+
   ceph::timespan max_dirty_age;
   bool block_writes_upfront;
 
@@ -425,7 +449,9 @@ class ObjectCacher {
   Cond flusher_cond;
   bool flusher_stop;
   void flusher_entry();
-  class FlusherThread : public Thread {
+
+  class FlusherThread : public Thread 
+  {
     ObjectCacher *oc;
   public:
     explicit FlusherThread(ObjectCacher *o) : oc(o) {}
@@ -438,17 +464,18 @@ class ObjectCacher {
   Finisher finisher;
 
   // objects
-  Object *get_object_maybe(sobject_t oid, object_locator_t &l) {
+  Object *get_object_maybe(sobject_t oid, object_locator_t &l) 
+  {
     // have it?
     if (((uint32_t)l.pool < objects.size()) &&
-	(objects[l.pool].count(oid)))
+        (objects[l.pool].count(oid)))
       return objects[l.pool][oid];
     return NULL;
   }
 
   Object *get_object(sobject_t oid, uint64_t object_no, ObjectSet *oset,
-		     object_locator_t &l, uint64_t truncate_size,
-		     uint64_t truncate_seq);
+                     object_locator_t &l, uint64_t truncate_size, uint64_t truncate_seq);
+
   void close_object(Object *ob);
 
   // bh stats
@@ -469,6 +496,7 @@ class ObjectCacher {
 
   void bh_stat_add(BufferHead *bh);
   void bh_stat_sub(BufferHead *bh);
+
   loff_t get_stat_tx() const { return stat_tx; }
   loff_t get_stat_rx() const { return stat_rx; }
   loff_t get_stat_dirty() const { return stat_dirty; }
@@ -477,19 +505,24 @@ class ObjectCacher {
   loff_t get_stat_dirty_waiting() const { return stat_dirty_waiting; }
   size_t get_stat_nr_dirty_waiters() const { return stat_nr_dirty_waiters; }
 
-  void touch_bh(BufferHead *bh) {
-    if (bh->is_dirty())
+  void touch_bh(BufferHead *bh) 
+  {
+    if (bh->is_dirty()) {
       bh_lru_dirty.lru_touch(bh);
-    else
+    } else {
       bh_lru_rest.lru_touch(bh);
+    }
 
     bh->set_dontneed(false);
     bh->set_nocache(false);
+
     touch_ob(bh->ob);
   }
+
   void touch_ob(Object *ob) {
     ob_lru.lru_touch(ob);
   }
+
   void bottouch_ob(Object *ob) {
     ob_lru.lru_bottouch(ob);
   }
@@ -527,12 +560,11 @@ class ObjectCacher {
   void bh_remove(Object *ob, BufferHead *bh);
 
   // io
-  void bh_read(BufferHead *bh, int op_flags,
-               const ZTracer::Trace &parent_trace);
+  void bh_read(BufferHead *bh, int op_flags, const ZTracer::Trace &parent_trace);
+
   void bh_write(BufferHead *bh, const ZTracer::Trace &parent_trace);
   void bh_write_scattered(list<BufferHead*>& blist);
-  void bh_write_adjacencies(BufferHead *bh, ceph::real_time cutoff,
-			    int64_t *amount, int *max_count);
+  void bh_write_adjacencies(BufferHead *bh, ceph::real_time cutoff, int64_t *amount, int *max_count);
 
   void trim();
   void flush(ZTracer::Trace *trace, loff_t amount=0);
@@ -548,8 +580,7 @@ class ObjectCacher {
    * @param len extent length, or 0 for entire object
    * @return true if object was already clean/flushed.
    */
-  bool flush(Object *o, loff_t off, loff_t len,
-             ZTracer::Trace *trace);
+  bool flush(Object *o, loff_t off, loff_t len, ZTracer::Trace *trace);
   loff_t release(Object *o);
   void purge(Object *o);
 
@@ -562,12 +593,13 @@ class ObjectCacher {
 
  public:
   void bh_read_finish(int64_t poolid, sobject_t oid, ceph_tid_t tid,
-		      loff_t offset, uint64_t length,
-		      bufferlist &bl, int r,
-		      bool trust_enoent);
+                      loff_t offset, uint64_t length,
+                      bufferlist &bl, int r,
+                      bool trust_enoent);
+
   void bh_write_commit(int64_t poolid, sobject_t oid,
-		       vector<pair<loff_t, uint64_t> >& ranges,
-		       ceph_tid_t t, int r);
+                       vector<pair<loff_t, uint64_t> >& ranges,
+                       ceph_tid_t t, int r);
 
   class C_WriteCommit;
   class C_WaitForWrite;
@@ -575,19 +607,19 @@ class ObjectCacher {
   void perf_start();
   void perf_stop();
 
-
-
   ObjectCacher(CephContext *cct_, string name, WritebackHandler& wb, Mutex& l,
-	       flush_set_callback_t flush_callback,
-	       void *flush_callback_arg,
-	       uint64_t max_bytes, uint64_t max_objects,
-	       uint64_t max_dirty, uint64_t target_dirty, double max_age,
-	       bool block_writes_upfront);
+               flush_set_callback_t flush_callback,
+               void *flush_callback_arg,
+               uint64_t max_bytes, uint64_t max_objects,
+               uint64_t max_dirty, uint64_t target_dirty, double max_age,
+               bool block_writes_upfront);
+
   ~ObjectCacher();
 
   void start() {
     flusher_thread.create("flusher");
   }
+
   void stop() {
     ceph_assert(flusher_thread.is_started());
     lock.Lock();  // hmm.. watch out for deadlock!
@@ -597,9 +629,7 @@ class ObjectCacher {
     flusher_thread.join();
   }
 
-
   class C_RetryRead;
-
 
   // non-blocking.  async.
 
@@ -608,21 +638,25 @@ class ObjectCacher {
    * the return value is total bytes read
    */
   int readx(OSDRead *rd, ObjectSet *oset, Context *onfinish,
-	    ZTracer::Trace *parent_trace = nullptr);
+            ZTracer::Trace *parent_trace = nullptr);
+
   int writex(OSDWrite *wr, ObjectSet *oset, Context *onfreespace,
-	     ZTracer::Trace *parent_trace = nullptr);
+             ZTracer::Trace *parent_trace = nullptr);
+
   bool is_cached(ObjectSet *oset, vector<ObjectExtent>& extents,
-		 snapid_t snapid);
+                 snapid_t snapid);
 
 private:
   // write blocking
   int _wait_for_write(OSDWrite *wr, uint64_t len, ObjectSet *oset,
                       ZTracer::Trace *trace, Context *onfreespace);
+
   void maybe_wait_for_writeback(uint64_t len, ZTracer::Trace *trace);
+
   bool _flush_set_finish(C_GatherBuilder *gather, Context *onfinish);
 
-  void _discard(ObjectSet *oset, const vector<ObjectExtent>& exls,
-                C_GatherBuilder* gather);
+  void _discard(ObjectSet *oset, const vector<ObjectExtent>& exls, C_GatherBuilder* gather);
+
   void _discard_finish(ObjectSet *oset, bool was_dirty, Context* on_finish);
 
 public:
@@ -653,30 +687,33 @@ public:
    */
   void clear_nonexistence(ObjectSet *oset);
 
-
   // cache sizes
   void set_max_dirty(uint64_t v) {
     max_dirty = v;
   }
+
   void set_target_dirty(int64_t v) {
     target_dirty = v;
   }
+
   void set_max_size(int64_t v) {
     max_size = v;
   }
+
   void set_max_dirty_age(double a) {
     max_dirty_age = make_timespan(a);
   }
+
   void set_max_objects(int64_t v) {
     max_objects = v;
   }
-
 
   // file functions
 
   /*** async+caching (non-blocking) file interface ***/
   int file_is_cached(ObjectSet *oset, file_layout_t *layout,
-		     snapid_t snapid, loff_t offset, uint64_t len) {
+                     snapid_t snapid, loff_t offset, uint64_t len) 
+  {
     vector<ObjectExtent> extents;
     Striper::file_to_extents(cct, oset->ino, layout, offset, len,
 			     oset->truncate_size, extents);
@@ -684,34 +721,42 @@ public:
   }
 
   int file_read(ObjectSet *oset, file_layout_t *layout, snapid_t snapid,
-		loff_t offset, uint64_t len, bufferlist *bl, int flags,
-		Context *onfinish) {
+                loff_t offset, uint64_t len, bufferlist *bl, int flags, Context *onfinish) 
+  {
     OSDRead *rd = prepare_read(snapid, bl, flags);
+
     Striper::file_to_extents(cct, oset->ino, layout, offset, len,
-			     oset->truncate_size, rd->extents);
+                             oset->truncate_size, rd->extents);
+
     return readx(rd, oset, onfinish);
   }
 
-  int file_write(ObjectSet *oset, file_layout_t *layout,
-		 const SnapContext& snapc, loff_t offset, uint64_t len,
-		 bufferlist& bl, ceph::real_time mtime, int flags) {
+  int file_write(ObjectSet *oset, file_layout_t *layout, const SnapContext& snapc, 
+                 loff_t offset, uint64_t len, bufferlist& bl, ceph::real_time mtime, int flags) 
+  {
     OSDWrite *wr = prepare_write(snapc, bl, mtime, flags, 0);
+
     Striper::file_to_extents(cct, oset->ino, layout, offset, len,
-			     oset->truncate_size, wr->extents);
+                             oset->truncate_size, wr->extents);
+
     return writex(wr, oset, NULL);
   }
 
   bool file_flush(ObjectSet *oset, file_layout_t *layout,
-		  const SnapContext& snapc, loff_t offset, uint64_t len,
-		  Context *onfinish) {
+                  const SnapContext& snapc, loff_t offset, uint64_t len, Context *onfinish) 
+  {
     vector<ObjectExtent> extents;
+
     Striper::file_to_extents(cct, oset->ino, layout, offset, len,
-			     oset->truncate_size, extents);
+                             oset->truncate_size, extents);
+
     ZTracer::Trace trace;
+
     return flush_set(oset, extents, &trace, onfinish);
   }
 };
 
+// ===========================
 
 inline ostream& operator<<(ostream &out, const ObjectCacher::BufferHead &bh)
 {
@@ -749,17 +794,13 @@ inline ostream& operator<<(ostream &out, const ObjectCacher::BufferHead &bh)
 
 inline ostream& operator<<(ostream &out, const ObjectCacher::ObjectSet &os)
 {
-  return out << "objectset[" << os.ino
-	     << " ts " << os.truncate_seq << "/" << os.truncate_size
-	     << " objects " << os.objects.size()
-	     << " dirty_or_tx " << os.dirty_or_tx
-	     << "]";
+  return out << "objectset[" << os.ino << " ts " << os.truncate_seq << "/" << os.truncate_size
+             << " objects " << os.objects.size() << " dirty_or_tx " << os.dirty_or_tx << "]";
 }
 
 inline ostream& operator<<(ostream &out, const ObjectCacher::Object &ob)
 {
-  out << "object["
-      << ob.get_soid() << " oset " << ob.oset << dec
+  out << "object[" << ob.get_soid() << " oset " << ob.oset << dec
       << " wr " << ob.last_write_tid << "/" << ob.last_commit_tid;
 
   if (ob.complete)
@@ -768,6 +809,7 @@ inline ostream& operator<<(ostream &out, const ObjectCacher::Object &ob)
     out << " !EXISTS";
 
   out << "]";
+
   return out;
 }
 

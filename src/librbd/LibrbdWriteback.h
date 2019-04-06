@@ -16,7 +16,8 @@ namespace librbd {
 
   struct ImageCtx;
 
-  class LibrbdWriteback : public WritebackHandler {
+  class LibrbdWriteback : public WritebackHandler 
+  {
   public:
     LibrbdWriteback(ImageCtx *ictx, Mutex& lock);
 
@@ -25,7 +26,7 @@ namespace librbd {
               const object_locator_t& oloc, uint64_t off, uint64_t len,
               snapid_t snapid, bufferlist *pbl, uint64_t trunc_size,
               __u32 trunc_seq, int op_flags,
-	      const ZTracer::Trace &parent_trace, Context *onfinish) override;
+              const ZTracer::Trace &parent_trace, Context *onfinish) override;
 
     // Determine whether a read to this extent could be affected by a
     // write-triggered copy-on-write
@@ -40,6 +41,7 @@ namespace librbd {
                      __u32 trunc_seq, ceph_tid_t journal_tid,
                      const ZTracer::Trace &parent_trace,
                      Context *oncommit) override;
+
     using WritebackHandler::write;
 
     void overwrite_extent(const object_t& oid, uint64_t off,

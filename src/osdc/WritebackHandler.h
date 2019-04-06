@@ -14,9 +14,9 @@ class WritebackHandler {
   virtual ~WritebackHandler() {}
 
   virtual void read(const object_t& oid, uint64_t object_no,
-		    const object_locator_t& oloc, uint64_t off, uint64_t len,
-		    snapid_t snapid, bufferlist *pbl, uint64_t trunc_size,
-		    __u32 trunc_seq, int op_flags,
+                    const object_locator_t& oloc, uint64_t off, uint64_t len,
+                    snapid_t snapid, bufferlist *pbl, uint64_t trunc_size,
+                    __u32 trunc_seq, int op_flags,
                     const ZTracer::Trace &parent_trace, Context *onfinish) = 0;
   /**
    * check if a given extent read result may change due to a write
@@ -30,12 +30,13 @@ class WritebackHandler {
    * @param snapid read snapid
    */
   virtual bool may_copy_on_write(const object_t& oid, uint64_t read_off,
-				 uint64_t read_len, snapid_t snapid) = 0;
+                                 uint64_t read_len, snapid_t snapid) = 0;
+
   virtual ceph_tid_t write(const object_t& oid, const object_locator_t& oloc,
-			   uint64_t off, uint64_t len,
-			   const SnapContext& snapc,
-			   const bufferlist &bl, ceph::real_time mtime,
-			   uint64_t trunc_size, __u32 trunc_seq,
+                           uint64_t off, uint64_t len,
+                           const SnapContext& snapc,
+                           const bufferlist &bl, ceph::real_time mtime,
+                           uint64_t trunc_size, __u32 trunc_seq,
                            ceph_tid_t journal_tid,
                            const ZTracer::Trace &parent_trace,
                            Context *oncommit) = 0;
@@ -46,12 +47,13 @@ class WritebackHandler {
 
   virtual bool can_scattered_write() { return false; }
   virtual ceph_tid_t write(const object_t& oid, const object_locator_t& oloc,
-			   vector<pair<uint64_t, bufferlist> >& io_vec,
-			   const SnapContext& snapc, ceph::real_time mtime,
-			   uint64_t trunc_size, __u32 trunc_seq,
-			   Context *oncommit) {
+                           vector<pair<uint64_t, bufferlist> >& io_vec,
+                           const SnapContext& snapc, ceph::real_time mtime,
+                           uint64_t trunc_size, __u32 trunc_seq,
+                           Context *oncommit) {
     return 0;
   }
+
 };
 
 #endif

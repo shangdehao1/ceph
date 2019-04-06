@@ -147,10 +147,12 @@ namespace cache {
 
 template <typename ImageCtxT = librbd::ImageCtx>
 class ReplicatedWriteLog;
+
 struct WriteBufferAllocation;
 
-namespace rwl {
-typedef std::list<Context *> Contexts;
+namespace rwl 
+{
+typedef std::list<Context*> Contexts;
 typedef std::vector<Context*> ContextsV;
 
 static const uint32_t MIN_WRITE_ALLOC_SIZE = 512;
@@ -173,6 +175,7 @@ static const unsigned long int MAX_ALLOC_PER_TRANSACTION = 8;
 static const unsigned long int MAX_FREE_PER_TRANSACTION = 1;
 static const unsigned int MAX_CONCURRENT_WRITES = 256;
 static const uint64_t DEFAULT_POOL_SIZE = 1u<<30;
+
 //static const uint64_t MIN_POOL_SIZE = 1u<<23;
 // force pools to be 1G until thread::arena init issue is resolved
 static const uint64_t MIN_POOL_SIZE = DEFAULT_POOL_SIZE;
@@ -198,7 +201,7 @@ typedef std::list<std::shared_ptr<WriteLogEntry>> WriteLogEntries;
 typedef std::list<std::shared_ptr<GenericLogEntry>> GenericLogEntries;
 typedef std::vector<std::shared_ptr<GenericLogEntry>> GenericLogEntriesVector;
 
-// ================== Write log entries end ========================
+// ================== SyncPoint ======================
 
 template <typename T>
 class SyncPoint 
@@ -206,11 +209,15 @@ class SyncPoint
 public:
   T &rwl;
 
+  // when construct sync point, create this log entry.
   std::shared_ptr<SyncPointLogEntry> log_entry;
 
-  /* Use m_lock for earlier/later links */
-  /* NULL if earlier has completed */
+  // link   : rwl::new_sync_point
+  // cancel : SyncPointLogOperation::complete
   std::shared_ptr<SyncPoint<T>> earlier_sync_point;
+
+  // link   : rwl.new_sync_point
+  // remove : none
   std::shared_ptr<SyncPoint<T>> later_sync_point;
 
   uint64_t m_final_op_sequence_num = 0;
@@ -225,7 +232,8 @@ public:
   * This sync point will not be appended until all these complete to the point 
   * where their persist order is guaranteed. 
   */
-  C_Gather *m_prior_log_entries_persisted; // ## details at rwl.new_sync_point
+  C_Gather *m_prior_log_entries_persisted;
+
   int m_prior_log_entries_persisted_result = 0;
   int m_prior_log_entries_persisted_complete = false;
 
@@ -234,6 +242,7 @@ public:
   * The finisher for m_prior_log_entries_persisted will be a sub-op of this. 
   */
   C_Gather *m_sync_point_persist;
+
   bool m_append_scheduled = false;
   bool m_appending = false;
 
@@ -312,13 +321,17 @@ public:
   }
 
   virtual const std::shared_ptr<GenericLogEntry> get_log_entry() = 0;
+
   virtual const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return nullptr; }
   virtual const std::shared_ptr<GeneralWriteLogEntry> get_gen_write_log_entry() { return nullptr; }
   virtual const std::shared_ptr<WriteLogEntry> get_write_log_entry() { return nullptr; }
   virtual const std::shared_ptr<DiscardLogEntry> get_discard_log_entry() { return nullptr; }
   virtual const std::shared_ptr<WriteSameLogEntry> get_write_same_log_entry() { return nullptr; }
 
+  // when rwl.schedule_append put these ops into rwl.m_ops_to_append, 
+  // we say that current ops is in appending status.
   virtual void appending() = 0;
+
   virtual void complete(int r) = 0;
 
   virtual bool is_write() { return false; }
@@ -340,7 +353,8 @@ class SyncPointLogOperation : public GenericLogOperation<T>
 public:
   using GenericLogOperation<T>::rwl;
 
-  std::shared_ptr<SyncPoint<T>> sync_point; // ##
+  // derive from construction
+  std::shared_ptr<SyncPoint<T>> sync_point;
 
   SyncPointLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point, const utime_t dispatch_time);
   ~SyncPointLogOperation();
@@ -363,10 +377,10 @@ public:
   const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return sync_point->log_entry; }
   bool is_sync_point() { return true; }
 
-  // execute all context derived from sync_point->m_on_sync_appending...sdh
+  /* execute all contexts derived from sync_point->m_on_sync_appending */
   void appending(); 
 
-  // execute all context derived from sync_point->m_on_sync_persist...sdh
+  /* execute all contexts derived from sync_point->m_on_sync_persist */
   void complete(int r);
 };
 
@@ -381,7 +395,8 @@ private:
 public:
   using GenericLogOperation<T>::rwl;
 
-  std::shared_ptr<SyncPoint<T>> sync_point; // ##
+  /* derive from construcation */
+  std::shared_ptr<SyncPoint<T>> sync_point;
 
   /* Completion for things waiting on this write's position in the log to be guaranteed */
   Context *on_write_append = nullptr;  
@@ -405,12 +420,13 @@ public:
   }
 
   GeneralWriteLogOperation<T> *get_gen_write_op() { return this; };
+
   bool is_writing_op() { return true; }
 
-  // execute on_write_append::complete...sdh
+  /* execute on_write_append */
   void appending();
 
-  // execute on_write_persist::complete...sdh
+  /* execute on_write_persist */
   void complete(int r);
 };
 
@@ -424,11 +440,16 @@ public:
   using GeneralWriteLogOperation<T>::on_write_append;
   using GeneralWriteLogOperation<T>::on_write_persist;
 
-  std::shared_ptr<WriteLogEntry> log_entry; // ##
-  bufferlist bl; // ##
-  WriteBufferAllocation *buffer_alloc = nullptr; // ##
+  /* created by construction */
+  std::shared_ptr<WriteLogEntry> log_entry;
 
-  WriteLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes, const uint64_t write_bytes);
+  bufferlist bl;
+  WriteBufferAllocation *buffer_alloc = nullptr;
+
+  WriteLogOperation(WriteLogOperationSet<T> &set,
+                    const uint64_t image_offset_bytes,
+                    const uint64_t write_bytes);
+
   ~WriteLogOperation();
 
   WriteLogOperation(const WriteLogOperation&) = delete;
@@ -459,7 +480,10 @@ public:
   using WriteLogOperation<T>::bl;
   using WriteLogOperation<T>::buffer_alloc;
 
-  WriteSameLogOperation(WriteLogOperationSet<T> &set, const uint64_t image_offset_bytes, const uint64_t write_bytes, const uint32_t data_len);
+  WriteSameLogOperation(WriteLogOperationSet<T> &set, 
+                       const uint64_t image_offset_bytes, 
+                       const uint64_t write_bytes, const uint32_t data_len);
+
   ~WriteSameLogOperation();
 
   WriteSameLogOperation(const WriteSameLogOperation&) = delete;
@@ -475,7 +499,9 @@ public:
     return op.format(os);
   }
 
-  const std::shared_ptr<GenericLogEntry> get_log_entry() { return get_write_same_log_entry(); }
+  const std::shared_ptr<GenericLogEntry> get_log_entry() { 
+    return get_write_same_log_entry(); 
+  }
   const std::shared_ptr<WriteSameLogEntry> get_write_same_log_entry() {
     return static_pointer_cast<WriteSameLogEntry>(log_entry);
   }
@@ -494,6 +520,7 @@ public:
   using GeneralWriteLogOperation<T>::on_write_persist;
 
   std::shared_ptr<DiscardLogEntry> log_entry;
+
   DiscardLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point,
 		      const uint64_t image_offset_bytes, const uint64_t write_bytes,
 		      const utime_t dispatch_time);
@@ -536,7 +563,8 @@ class WriteLogOperationSet
 public:
   T &rwl;
 
-  BlockExtent m_extent; /* in blocks */
+  /* in blocks */
+  BlockExtent m_extent;
 
   /* C_WriteRequest */ 
   Context* m_on_finish;
@@ -544,11 +572,20 @@ public:
   bool m_persist_on_flush;
   BlockGuardCell *m_cell;
 
+  /* Once all ops become appending status, execute this finisher. */
   C_Gather *m_extent_ops_appending;
+
+  /* this stub derive from SyncPoint::m_prior_log_entries_persisted.
+   * it will be executed in m_extent_ops_appending. */
   Context *m_on_ops_appending;
 
-  // will call m_on_finish->complete
+  /* execute this finisher when two requirements below is meet.
+   *  - al ops become complete status
+   *  - m_extent_ops_appending have been executed */
   C_Gather *m_extent_ops_persist;
+
+  /* this context is C_WriteRequest.
+   * it will be executed in m_extent_ops_persisit */
   Context *m_on_ops_persist;
 
   // just one stub for sync_point::m_prior_log_entries_persisted
@@ -559,10 +596,10 @@ public:
 
   utime_t m_dispatch_time; // When set created 
 
-  // 
   std::shared_ptr<SyncPoint<T>> sync_point;
 
-  WriteLogOperationSet(T &rwl, const utime_t dispatched, std::shared_ptr<SyncPoint<T>> sync_point,
+  WriteLogOperationSet(T &rwl, const utime_t dispatched, 
+                       std::shared_ptr<SyncPoint<T>> sync_point,
 		       const bool persist_on_flush, BlockExtent extent, Context *on_finish);
 
   ~WriteLogOperationSet();
@@ -579,12 +616,21 @@ public:
   };
 };
 
+// ================ BlockGuard =====================
+
 struct BlockGuardReqState 
 {
-  bool barrier = false; /* This is a barrier request */
-  bool current_barrier = false; /* This is the currently active barrier */
+  /* This is a barrier request */
+  bool barrier = false;
+
+  /* This is the currently active barrier */
+  bool current_barrier = false;
+
   bool detained = false;
-  bool queued = false; /* Queued for barrier */
+
+  /* Queued for barrier */
+  bool queued = false;
+
   friend std::ostream &operator<<(std::ostream &os, const BlockGuardReqState &r) {
     os << "barrier=" << r.barrier << ", " << "current_barrier=" << r.current_barrier << ", "
        << "detained=" << r.detained << ", " << "queued=" << r.queued;
@@ -595,13 +641,20 @@ struct BlockGuardReqState
 class GuardedRequestFunctionContext : public Context 
 {
 private:
+  /* lambda function */
   boost::function<void(GuardedRequestFunctionContext&)> m_callback;
+
+  /* call m_callback(*this) */
   void finish(int r) override;
+
 public:
+
   BlockGuardCell *m_cell = nullptr;
   BlockGuardReqState m_state;
+
   GuardedRequestFunctionContext(boost::function<void(GuardedRequestFunctionContext&)> &&callback);
   ~GuardedRequestFunctionContext(void);
+
   GuardedRequestFunctionContext(const GuardedRequestFunctionContext&) = delete;
   GuardedRequestFunctionContext &operator=(const GuardedRequestFunctionContext&) = delete;
 };
@@ -609,10 +662,18 @@ public:
 struct GuardedRequest 
 {
   const BlockExtent block_extent;
-  GuardedRequestFunctionContext *guard_ctx; /* Work to do when guard on range obtained */
 
-  GuardedRequest(const BlockExtent block_extent, GuardedRequestFunctionContext *on_guard_acquire, bool barrier = false)
-    : block_extent(block_extent), guard_ctx(on_guard_acquire) {
+  /* Work to do when guard on range obtained */
+  GuardedRequestFunctionContext *guard_ctx;
+
+  GuardedRequest(const BlockExtent block_extent, 
+                 GuardedRequestFunctionContext *on_guard_acquire,
+                 bool barrier = false)
+    : block_extent(block_extent), guard_ctx(on_guard_acquire) 
+  {
+    // At the following situation the barrier is true.
+    // - aio_flush
+    // - internal_flush
     guard_ctx->m_state.barrier = barrier;
   }
 
@@ -729,11 +790,14 @@ private:
   typedef std::list<C_WriteRequest<This> *> C_WriteRequests;
   typedef std::list<C_BlockIORequest<This> *> C_BlockIORequests;
 
-  /************ block guard ************/
+  // ===== BlockGuard =====
+
   BlockGuardCell* detain_guarded_request_helper(GuardedRequest &req);
   BlockGuardCell* detain_guarded_request_barrier_helper(GuardedRequest &req);
   void detain_guarded_request(GuardedRequest &&req);
   void release_guarded_request(BlockGuardCell *cell);
+
+  // ==== RWL status =======
 
   std::atomic<bool> m_initialized = {false};
   std::atomic<bool> m_shutting_down = {false};
@@ -831,6 +895,9 @@ private:
   bool m_wake_up_requested = false;
   bool m_wake_up_scheduled = false;
   bool m_wake_up_enabled = true;
+
+  // set true : SyncPointLogOperation::appending
+  // set false : 
   bool m_appending = false;
   bool m_dispatching_deferred_ops = false;
 
@@ -841,6 +908,8 @@ private:
   Finisher m_log_append_finisher;
   Finisher m_on_persist_finisher; // 
 
+  // increase : schedule_flush_and_append
+  // decrease : flush_then_append_scheduled_ops
   GenericLogOperationsT m_ops_to_flush; /* Write ops needing flush in local log */
 
   // namely , std::list<GenericLogOperation*>
@@ -848,7 +917,6 @@ private:
   // delete : append_scheduled_ops
   GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
 
-  // 
   WriteLogMap m_blocks_to_log_entries;  // reading existing entries from pmem....sdh
 
   /* New entries are at the back. Oldest at the front */
@@ -857,6 +925,7 @@ private:
   // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
   GenericLogEntries m_dirty_log_entries;
 
+  // the following three item : construct_flush_entry_ctx
   int m_flush_ops_in_flight = 0;
   int m_flush_bytes_in_flight = 0;
   uint64_t m_lowest_flushing_sync_gen = 0;
@@ -894,7 +963,6 @@ private:
   void rwl_init(Context *on_finish, DeferredContexts &later);
   void load_existing_entries(DeferredContexts &later);
 
-  // put process_work into m_work_queue
   void wake_up();
   void process_work();
 
@@ -960,8 +1028,6 @@ private:
   /* Push op log entry completion to a WQ. */
   void schedule_complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
 
-// ===========================
-
   void internal_flush(Context *on_finish, bool invalidate=false, bool discard_unflushed_writes=false);
 };
 
@@ -971,7 +1037,3 @@ private:
 extern template class librbd::cache::ReplicatedWriteLog<librbd::ImageCtx>;
 
 #endif // CEPH_LIBRBD_CACHE_REPLICATED_WRITE_LOG
-
-/* Local Variables: */
-/* eval: (c-set-offset 'innamespace 0) */
-/* End: */

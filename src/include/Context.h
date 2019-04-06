@@ -95,6 +95,7 @@ public:
   ContainerContext(T &obj) : obj(obj) {}
   void finish(int r) override {}
 };
+
 template <typename T>
 ContainerContext<T> *make_container_context(T &&t) {
   return new ContainerContext<T>(std::forward<T>(t));
@@ -110,6 +111,7 @@ struct Wrapper : public Context {
       to_run->complete(r);
   }
 };
+
 struct RunOnDelete {
   Context *to_run;
   RunOnDelete(Context *to_run) : to_run(to_run) {}
@@ -118,6 +120,7 @@ struct RunOnDelete {
       to_run->complete(0);
   }
 };
+
 typedef std::shared_ptr<RunOnDelete> RunOnDeleteRef;
 
 template <typename T>
@@ -128,6 +131,7 @@ struct LambdaContext : public Context {
     t();
   }
 };
+
 template <typename T>
 LambdaContext<T> *make_lambda_context(T &&t) {
   return new LambdaContext<T>(std::move(t));
@@ -141,6 +145,7 @@ struct LambdaGenContext : GenContext<T> {
     f(std::forward<T>(t));
   }
 };
+
 template <typename T, typename F>
 GenContextURef<T> make_gen_lambda_context(F &&f) {
   return GenContextURef<T>(new LambdaGenContext<F, T>(std::move(f)));
@@ -333,14 +338,17 @@ public:
   {
     mydout(cct,10) << "C_GatherBase " << this << ".new" << dendl;
   }
+
   ~C_GatherBase() override {
     mydout(cct,10) << "C_GatherBase " << this << ".delete" << dendl;
   }
+
   void set_finisher(ContextType *onfinish_) {
     Mutex::Locker l(lock);
     ceph_assert(!onfinish);
     onfinish = onfinish_;
   }
+
   void activate() {
     lock.Lock();
     ceph_assert(activated == false);
@@ -352,6 +360,7 @@ public:
     lock.Unlock();
     delete_me();
   }
+
   ContextType *new_sub() {
     Mutex::Locker l(lock);
     ceph_assert(activated == false);
@@ -475,7 +484,7 @@ private:
   bool activated;
 };
 
-typedef C_GatherBase<Context, Context> C_Gather;
+typedef C_GatherBase<Context, Context> C_Gather; // ##
 typedef C_GatherBuilderBase<Context, C_Gather > C_GatherBuilder;
 
 class FunctionContext : public Context {

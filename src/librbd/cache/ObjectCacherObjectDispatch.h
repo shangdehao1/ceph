@@ -95,6 +95,7 @@ private:
   ImageCtxT* m_image_ctx;
 
   Mutex m_cache_lock;
+
   ObjectCacher *m_object_cacher = nullptr;
   ObjectCacher::ObjectSet *m_object_set = nullptr;
 

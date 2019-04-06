@@ -30,7 +30,8 @@ typedef std::vector<ObjectExtent> ObjectExtents;
 } // anonymous namespace
 
 template <typename I>
-struct ObjectCacherObjectDispatch<I>::C_InvalidateCache : public Context {
+struct ObjectCacherObjectDispatch<I>::C_InvalidateCache : public Context 
+{
   ObjectCacherObjectDispatch* dispatcher;
   bool purge_on_error;
   Context *on_finish;
@@ -73,8 +74,7 @@ struct ObjectCacherObjectDispatch<I>::C_InvalidateCache : public Context {
 };
 
 template <typename I>
-ObjectCacherObjectDispatch<I>::ObjectCacherObjectDispatch(
-    I* image_ctx)
+ObjectCacherObjectDispatch<I>::ObjectCacherObjectDispatch(I* image_ctx)
   : m_image_ctx(image_ctx),
     m_cache_lock(util::unique_lock_name(
       "librbd::cache::ObjectCacherObjectDispatch::cache_lock", this)) {
@@ -89,7 +89,8 @@ ObjectCacherObjectDispatch<I>::~ObjectCacherObjectDispatch() {
 }
 
 template <typename I>
-void ObjectCacherObjectDispatch<I>::init() {
+void ObjectCacherObjectDispatch<I>::init() 
+{
   auto cct = m_image_ctx->cct;
   ldout(cct, 5) << dendl;
 
@@ -147,7 +148,8 @@ void ObjectCacherObjectDispatch<I>::init() {
 }
 
 template <typename I>
-void ObjectCacherObjectDispatch<I>::shut_down(Context* on_finish) {
+void ObjectCacherObjectDispatch<I>::shut_down(Context* on_finish) 
+{
   auto cct = m_image_ctx->cct;
   ldout(cct, 5) << dendl;
 
@@ -179,7 +181,8 @@ bool ObjectCacherObjectDispatch<I>::read(
     const ZTracer::Trace &parent_trace, ceph::bufferlist* read_data,
     io::ExtentMap* extent_map, int* object_dispatch_flags,
     io::DispatchResult* dispatch_result, Context** on_finish,
-    Context* on_dispatched) {
+    Context* on_dispatched) 
+{
   // IO chained in reverse order
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << "object_no=" << object_no << " " << object_off << "~"
@@ -216,8 +219,10 @@ bool ObjectCacherObjectDispatch<I>::discard(
     uint64_t object_len, const ::SnapContext &snapc, int discard_flags,
     const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
-    Context** on_finish, Context* on_dispatched) {
+    Context** on_finish, Context* on_dispatched) 
+{
   auto cct = m_image_ctx->cct;
+
   ldout(cct, 20) << "object_no=" << object_no << " " << object_off << "~"
                  << object_len << dendl;
 
@@ -257,8 +262,10 @@ bool ObjectCacherObjectDispatch<I>::write(
     ceph::bufferlist&& data, const ::SnapContext &snapc, int op_flags,
     const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
-    Context** on_finish, Context* on_dispatched) {
+    Context** on_finish, Context* on_dispatched) 
+{
   auto cct = m_image_ctx->cct;
+
   ldout(cct, 20) << "object_no=" << object_no << " " << object_off << "~"
                  << data.length() << dendl;
 
@@ -267,8 +274,10 @@ bool ObjectCacherObjectDispatch<I>::write(
                                                       on_dispatched);
 
   m_image_ctx->snap_lock.get_read();
+
   ObjectCacher::OSDWrite *wr = m_object_cacher->prepare_write(
     snapc, data, ceph::real_time::min(), op_flags, *journal_tid);
+
   m_image_ctx->snap_lock.put_read();
 
   ObjectExtent extent(oid, 0, object_off, data.length(), 0);
@@ -277,11 +286,13 @@ bool ObjectCacherObjectDispatch<I>::write(
   wr->extents.push_back(extent);
 
   ZTracer::Trace trace(parent_trace);
+
   *dispatch_result = io::DISPATCH_RESULT_COMPLETE;
 
   m_cache_lock.Lock();
   m_object_cacher->writex(wr, m_object_set, on_dispatched, &trace);
   m_cache_lock.Unlock();
+
   return true;
 }
 
@@ -292,8 +303,10 @@ bool ObjectCacherObjectDispatch<I>::write_same(
     const ::SnapContext &snapc, int op_flags,
     const ZTracer::Trace &parent_trace, int* object_dispatch_flags,
     uint64_t* journal_tid, io::DispatchResult* dispatch_result,
-    Context** on_finish, Context* on_dispatched) {
+    Context** on_finish, Context* on_dispatched) 
+{
   auto cct = m_image_ctx->cct;
+
   ldout(cct, 20) << "object_no=" << object_no << " " << object_off << "~"
                  << object_len << dendl;
 
@@ -317,7 +330,8 @@ bool ObjectCacherObjectDispatch<I>::compare_and_write(
     const ZTracer::Trace &parent_trace, uint64_t* mismatch_offset,
     int* object_dispatch_flags, uint64_t* journal_tid,
     io::DispatchResult* dispatch_result, Context** on_finish,
-    Context* on_dispatched) {
+    Context* on_dispatched) 
+{
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << "object_no=" << object_no << " " << object_off << "~"
                  << cmp_data.length() << dendl;
@@ -338,6 +352,7 @@ bool ObjectCacherObjectDispatch<I>::compare_and_write(
                               0);
 
   Mutex::Locker cache_locker(m_cache_lock);
+
   m_object_cacher->flush_set(m_object_set, object_extents, &trace,
                              on_dispatched);
   return true;
@@ -347,7 +362,8 @@ template <typename I>
 bool ObjectCacherObjectDispatch<I>::flush(
     io::FlushSource flush_source, const ZTracer::Trace &parent_trace,
     io::DispatchResult* dispatch_result, Context** on_finish,
-    Context* on_dispatched) {
+    Context* on_dispatched) 
+{
   auto cct = m_image_ctx->cct;
   ldout(cct, 20) << dendl;
 
@@ -356,6 +372,7 @@ bool ObjectCacherObjectDispatch<I>::flush(
                                                       on_dispatched);
 
   m_cache_lock.Lock();
+
   if (flush_source == io::FLUSH_SOURCE_USER && !m_user_flushed &&
       m_image_ctx->cache_writethrough_until_flush &&
       m_image_ctx->cache_max_dirty > 0) {
@@ -365,13 +382,16 @@ bool ObjectCacherObjectDispatch<I>::flush(
   }
 
   *dispatch_result = io::DISPATCH_RESULT_CONTINUE;
+
   m_object_cacher->flush_set(m_object_set, on_dispatched);
+
   m_cache_lock.Unlock();
   return true;
 }
 
 template <typename I>
-bool ObjectCacherObjectDispatch<I>::invalidate_cache(Context* on_finish) {
+bool ObjectCacherObjectDispatch<I>::invalidate_cache(Context* on_finish) 
+{
   auto cct = m_image_ctx->cct;
   ldout(cct, 5) << dendl;
 
@@ -382,8 +402,10 @@ bool ObjectCacherObjectDispatch<I>::invalidate_cache(Context* on_finish) {
   on_finish = new C_InvalidateCache(this, false, on_finish);
 
   m_cache_lock.Lock();
+
   m_object_cacher->release_set(m_object_set);
   m_object_cacher->flush_set(m_object_set, on_finish);
+
   m_cache_lock.Unlock();
   return true;
 }
