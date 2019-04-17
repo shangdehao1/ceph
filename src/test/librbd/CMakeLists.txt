@@ -106,6 +106,7 @@ set(unittest_librbd_srcs
   operation/test_mock_TrimRequest.cc
   trash/test_mock_MoveRequest.cc
   watcher/test_mock_RewatchRequest.cc
+  cache/test_mock_ParentImageCache.cc
   )
 add_executable(unittest_librbd
   ${unittest_librbd_srcs}
