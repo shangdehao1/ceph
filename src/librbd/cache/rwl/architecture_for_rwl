@@ -13,6 +13,133 @@ how to explain rwl offer what guarantee ?
 persist_on_flush mode
 
 
+=====================================================
+===================== review ========================
+=====================================================
+
+
+== data structure ==
+
+ - rwl 
+
+ - request 
+
+ - operation 
+
+ - log entry  
+
+ - sync point
+
+ - Extent 
+     
+ - BlockGuard
+
+ - Resource
+
+== io flow ==
+
+                          init 
+                           |
+                           v
+      ----------------------------------------------
+      |                                            | 
+      v                                            v
+   aio_write                                    aio_flush
+      |                                            | 
+      v                                            v
+  C_WriteRequest                             C_FlushRequest
+      |                                            | 
+      v                                            v
+      ----------------------------------------------
+                            |
+                            v 
+                       block guard
+                            |
+                            v
+      ----------------------------------------------
+      |                                            | 
+      v                                            v
+block_request_ctx                            block_request_ctx
+      |                                            | 
+      v                                            v
+      ----------------------------------------------                     
+                           |
+                           v
+                alloc_and_dispatch_io_req
+                           |
+                           v
+      ----------------------------------------------
+      |                                            |
+ alloc resource                             alloc resource
+      |                                            |
+      v                                            |
+  dispatch                                     dispatch
+      |                                            |   
+      v                                            |             
+new_flush_sync_point                               |                     
+      |                                            |                     
+      v                                            |                     
+ schedule_append                                   |                                     
+      |                                            |             
+      v                                            |                             
+      ----------------------                       |                     
+      |                    |                       |                     
+      |                    v                       |                     
+      |           schedule_flush_and_append        |                     
+      |                    |                       |             
+      |                    v                       |             
+      |              enlist_flusher                |                     
+      |                    |                       |             
+      |                    v                       |                     
+      |          flush_then_append_scheduled_ops   |             
+      |                    |                       |                     
+      |                    v                       |                     
+      --------------> flush_pmem_buffer            |             
+                           |                       |                    
+                           v                       |                                     
+                     schedule_append  <-------------
+                           |
+                           v
+                      enlist_appender  
+                           |
+                           v
+                     append_scheduled_ops
+                           |
+                           v
+                    alloc_op_log_entries 
+                           |
+                           v
+                    append_op_log_entries
+                           |
+                           v
+                    complete_op_log_entries
+                           |
+                           v
+      ----------------------------------------------
+      |                                            | 
+      v                                            v
+  op->complete                                 op->complete
+      |                                            |
+      v                                            v
+      ----------------------------------------------
+                           |
+                           v
+                        wake_up
+                           |
+                           v
+                      process_work
+                           |
+                           v
+                     retire_entries
+                           |
+                           v
+                dispatch_defferred_request
+                           |
+                           v
+                    procee_dirty_enties
+                           |
+                           v
+                       shut_down
 
 ========================================
 
@@ -26,9 +153,10 @@ ImageCache --> ImageWriteBack
   
        ImageRequest::send
                 |
+                v
     ----------------------------- 
     |                           |
-    |                           |
+    v                           |
 ImageCache                      |
     |                           |
     v                           v 
@@ -749,11 +877,15 @@ WriteRequestResources
               |
               v
               | 
+        --------------       
+              | 
+              v 
+              | 
   C_WriteRequest::schedule_append
               |
               v 
               |
-         m_do_early_flush <---------determined by C_WriteRequest::dispatch
+       m_do_early_flush <---------determined by C_WriteRequest::dispatch
               |
               |            false 
               ---------->------------------------
@@ -1019,15 +1151,31 @@ GuardedRequest
    ----> BlockExtent block_extent
    |
    ----> GuardedrequestFunctionContext* guarded_ctx.  
+            |
+            ---> BlockGuardCell
+            |
+            ---> m_callback ---> namely : lambda function
+            |
+            ---> BlockGuardReqState
+                    |
+                    ---> barrier
+                    |
+                    ---> current_barrier
+                    |
+                    ---> detained
+                    |
+                    ---> queued
 
 
-rwl.m_write_log_guard
-  |
-  ----> namely : typedef librbd::BlockGuard<GuardedReqest> WriteLogGuard
-  |
-  ----> release : rwl.release_guarded_request
-  |
-  ----> detain  : rwl.detain_guarded_request_helper
+librbd::BlockGuard<GuardedReqest> WriteLogGuard
+        |
+        v namely
+        |
+ rwl.m_write_log_guard
+                |
+                ----> release : rwl.release_guarded_request
+                |
+                ----> detain  : rwl.detain_guarded_request_helper
 
 
 
@@ -1167,6 +1315,36 @@ boost::intrusive::list_base_hook<>      boost::intrusive::set_base_hook<>
    -     }
    -   }
    - 
+
+
+============================= request complete flow ===========================================
+
+
+
+
+
+
+    C_xxxxRequest::complete 
+           |
+           v
+           |
+    C_BlockIORequest::finish
+           |
+           v
+           |
+           ----> C_BlockIORequest::complete_uesr_request ----> user_interface::complete
+           |
+           |
+           ----------> C_WriteRequest::finish_req
+                | 
+                ----> C_FlushRequest::finish_req
+                |
+                ----> C_DiscardRequest::finish_req
+
+
+
+
+
 
 
 
