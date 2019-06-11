@@ -222,42 +222,32 @@ public:
 
   uint64_t m_final_op_sequence_num = 0;
 
- /* 
-  * A sync point can't appear in the log until all the writes bearing
+ /* A sync point can't appear in the log until all the writes bearing
   * it and all the prior sync points have been appended and persisted.
   *
   * Writes bearing this sync gen number and the prior sync point will be
   * sub-ops of this Gather. 
   *
   * This sync point will not be appended until all these complete to the point 
-  * where their persist order is guaranteed. 
-  */
+  * where their persist order is guaranteed. */
   C_Gather *m_prior_log_entries_persisted;
 
   int m_prior_log_entries_persisted_result = 0;
   int m_prior_log_entries_persisted_complete = false;
 
- /* 
-  * The finisher for this will append the sync point to the log.  
-  * The finisher for m_prior_log_entries_persisted will be a sub-op of this. 
-  */
+ /* The finisher for this will append the sync point to the log.  
+  * The finisher for m_prior_log_entries_persisted will be a sub-op of this. */
   C_Gather *m_sync_point_persist;
 
   bool m_append_scheduled = false;
   bool m_appending = false;
 
- /* 
-  * Signal these when this sync point is appending to the log, and its order of appearance is guaranteed. 
-  *
-  * One of these is is a sub-operation of the next sync point's m_prior_log_entries_persisted Gather. 
-  */
+ /* Signal these when this sync point is appending to the log, and its order of appearance is guaranteed. 
+  * One of these is is a sub-operation of the next sync point's m_prior_log_entries_persisted Gather. */
   std::vector<Context*> m_on_sync_point_appending;
 
- /* 
-  * Signal these when this sync point is appended and persisted. 
-  *
-  * User aio_flush() calls are added to this. 
-  */
+ /* Signal these when this sync point is appended and persisted. 
+  * User aio_flush() calls are added to this. */
   std::vector<Context*> m_on_sync_point_persisted;
 
   SyncPoint(T &rwl, const uint64_t sync_gen_num);
@@ -321,7 +311,6 @@ public:
   }
 
   virtual const std::shared_ptr<GenericLogEntry> get_log_entry() = 0;
-
   virtual const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return nullptr; }
   virtual const std::shared_ptr<GeneralWriteLogEntry> get_gen_write_log_entry() { return nullptr; }
   virtual const std::shared_ptr<WriteLogEntry> get_write_log_entry() { return nullptr; }
@@ -353,7 +342,6 @@ class SyncPointLogOperation : public GenericLogOperation<T>
 public:
   using GenericLogOperation<T>::rwl;
 
-  // derive from construction
   std::shared_ptr<SyncPoint<T>> sync_point;
 
   SyncPointLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point, const utime_t dispatch_time);
@@ -522,8 +510,8 @@ public:
   std::shared_ptr<DiscardLogEntry> log_entry;
 
   DiscardLogOperation(T &rwl, std::shared_ptr<SyncPoint<T>> sync_point,
-		      const uint64_t image_offset_bytes, const uint64_t write_bytes,
-		      const utime_t dispatch_time);
+                      const uint64_t image_offset_bytes, const uint64_t write_bytes,
+                      const utime_t dispatch_time);
   ~DiscardLogOperation();
 
   DiscardLogOperation(const DiscardLogOperation&) = delete;
@@ -584,8 +572,7 @@ public:
    *  - m_extent_ops_appending have been executed */
   C_Gather *m_extent_ops_persist;
 
-  /* this context is C_WriteRequest.
-   * it will be executed in m_extent_ops_persisit */
+  /* currently, it is nullptr */
   Context *m_on_ops_persist;
 
   // just one stub for sync_point::m_prior_log_entries_persisted
@@ -600,7 +587,7 @@ public:
 
   WriteLogOperationSet(T &rwl, const utime_t dispatched, 
                        std::shared_ptr<SyncPoint<T>> sync_point,
-		       const bool persist_on_flush, BlockExtent extent, Context *on_finish);
+                       const bool persist_on_flush, BlockExtent extent, Context *on_finish);
 
   ~WriteLogOperationSet();
 
@@ -671,9 +658,9 @@ struct GuardedRequest
                  bool barrier = false)
     : block_extent(block_extent), guard_ctx(on_guard_acquire) 
   {
-    // At the following situation the barrier is true.
-    // - aio_flush
-    // - internal_flush
+    // the following situation, barrier is true.
+    //  - aio_flush
+    //  - internal_flush
     guard_ctx->m_state.barrier = barrier;
   }
 
@@ -764,10 +751,10 @@ public:
   void shut_down(Context *on_finish) override;
   void get_state(bool &clean, bool &empty, bool &present) override;
 
-  void flush(Context *on_finish, bool invalidate=false, bool discard_unflushed_writes=false);
+  void flush(Context *on_finish, bool invalidate = false, bool discard_unflushed_writes = false);
   void flush(Context *on_finish) override;
   
-  void invalidate(Context *on_finish, bool discard_unflushed_writes=false);
+  void invalidate(Context *on_finish, bool discard_unflushed_writes = false);
   void invalidate(Context *on_finish) override;
 
 private:
@@ -833,6 +820,7 @@ private:
 
   /* Starts at 0 for a new write log. Incremented on every flush. */
   uint64_t m_current_sync_gen = 0;
+
   std::shared_ptr<SyncPointT> m_current_sync_point = nullptr;
 
   /* Starts at 0 on each sync gen increase. Incremented before applied to an operation */
@@ -843,12 +831,9 @@ private:
 
   bool m_persist_on_write_until_flush = true;
 
-  /* 
-   * True if it's safe to complete a user request in persist-on-flush mode before the write is persisted. 
-   *
+  /* True if it's safe to complete a user request in persist-on-flush mode before the write is persisted. 
    * This is only true if there is a local copy of the write data, or if local write failure always
-   * causes local node failure. 
-   */
+   * causes local node failure. */
   bool m_persist_on_flush_early_user_comp = false; /* Assume local write failure does not cause node failure */
 
   /* If false, persist each write before completion */
@@ -867,6 +852,7 @@ private:
   /************* Acquire locks in order declared here ********************/
 
   mutable Mutex m_log_retire_lock;
+
   /* Hold a read lock on m_entry_reader_lock to add readers to log entry
    * bufs. Hold a write lock to prevent readers from being added (e.g. when
    * removing log entrys from the map). No lock required to remove readers. */
@@ -896,8 +882,6 @@ private:
   bool m_wake_up_scheduled = false;
   bool m_wake_up_enabled = true;
 
-  // set true : SyncPointLogOperation::appending
-  // set false : 
   bool m_appending = false;
   bool m_dispatching_deferred_ops = false;
 
@@ -906,17 +890,18 @@ private:
   // finisher
   Finisher m_persist_finisher;
   Finisher m_log_append_finisher;
-  Finisher m_on_persist_finisher; // 
+  Finisher m_on_persist_finisher;
 
-  // increase : schedule_flush_and_append
-  // decrease : flush_then_append_scheduled_ops
-  GenericLogOperationsT m_ops_to_flush; /* Write ops needing flush in local log */
+ /* increase : schedule_flush_and_append
+  * decrease : flush_then_append_scheduled_ops
+  * Write ops needing flush in local log */
+ GenericLogOperationsT m_ops_to_flush;
 
-  // namely , std::list<GenericLogOperation*>
-  // add : schedule_append
-  // delete : append_scheduled_ops
+  // increase : schedule_append
+  // decrease : append_scheduled_ops
   GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
 
+  /* map block extent to log entry */
   WriteLogMap m_blocks_to_log_entries;  // reading existing entries from pmem....sdh
 
   /* New entries are at the back. Oldest at the front */
@@ -925,7 +910,7 @@ private:
   // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
   GenericLogEntries m_dirty_log_entries;
 
-  // the following three item : construct_flush_entry_ctx
+  // the following three item : construct_flush_entry_context
   int m_flush_ops_in_flight = 0;
   int m_flush_bytes_in_flight = 0;
   uint64_t m_lowest_flushing_sync_gen = 0;
@@ -948,21 +933,24 @@ private:
   ContextWQ m_work_queue;
 
   /* Returned by get_state() */
-  std::atomic<bool> m_clean = {false}; // whether exist ditry log entry. if don't dirty, true. m_dirty_log_entries decide this variable...sdh
-  std::atomic<bool> m_empty = {false}; // whether pmem have log entry, if don't have any log entry in PM, just true
+  std::atomic<bool> m_clean = {false};
+  std::atomic<bool> m_empty = {false};
   std::atomic<bool> m_present = {true};
 
   const Extent whole_volume_extent(void);
 
+  // performace statics tools
   void perf_start(const std::string name);
   void perf_stop();
   void log_perf();
   void periodic_stats();
   void arm_periodic_stats();
 
+  // initialize
   void rwl_init(Context *on_finish, DeferredContexts &later);
   void load_existing_entries(DeferredContexts &later);
 
+  // background thread to execute retire / re-dispatch / flush
   void wake_up();
   void process_work();
 
@@ -976,11 +964,10 @@ private:
 
   void process_writeback_dirty_entries();
 
-
   bool can_retire_entry(const std::shared_ptr<GenericLogEntry> log_entry);
   bool retire_entries(const unsigned long int frees_per_tx = MAX_FREE_PER_TRANSACTION);
 
-
+  // sync point
   void init_flush_new_sync_point(DeferredContexts &later);
   void new_sync_point(DeferredContexts &later);
   C_FlushRequest<ReplicatedWriteLog<ImageCtxT>>* make_flush_req(Context *on_finish);
@@ -1018,7 +1005,6 @@ private:
   void flush_op_log_entries(GenericLogOperationsVectorT &ops);
 
   /* Write and persist the (already allocated) write log entries and data buffer allocations for a set of ops. 
-   *
    * The data buffer for each of these must already have been persisted to its reserved area. */
   int append_op_log_entries(GenericLogOperationsT &ops);
 
