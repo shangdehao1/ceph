@@ -191,8 +191,6 @@ typedef std::list<std::shared_ptr<GenericLogEntry>> GenericLogEntries;
 typedef std::vector<std::shared_ptr<GenericLogEntry>> GenericLogEntriesVector;
 
 
-
-
 template <typename T>
 class WriteLogOperationSet;
 
@@ -238,7 +236,6 @@ using WriteSameLogOperationSharedPtr = std::shared_ptr<WriteSameLogOperation<T>>
 
 // =================
 struct GuardedRequest;
-
 
 typedef librbd::BlockGuard<GuardedRequest> WriteLogGuard;
 typedef LogMapEntry<GeneralWriteLogEntry> WriteLogMapEntry;

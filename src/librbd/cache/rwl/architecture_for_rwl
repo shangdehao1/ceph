@@ -13,28 +13,18 @@ how to explain rwl offer what guarantee ?
 persist_on_flush mode
 
 
-=====================================================
-===================== review ========================
-=====================================================
+===================================
 
+                                          rwl.schedule_flush_and_append
+                                                  |
+                                                  v enqueue
+                                                  |
+                                            rwl.m_ops_to_flush
+                                                  |                                   
+                                                  v outqueue                                 
+                                                  |                                   
+enlist_op_flusher ---> work queue ---> flush_then_append_scheduled_aops
 
-== data structure ==
-
- - rwl 
-
- - request 
-
- - operation 
-
- - log entry  
-
- - sync point
-
- - Extent 
-     
- - BlockGuard
-
- - Resource
 
 == io flow ==
 
@@ -79,6 +69,19 @@ block_request_ctx                            block_request_ctx
 new_flush_sync_point                               |                     
       |                                            |                     
       v                                            |                     
+ schedule_append                                   |                                     
+      |                                            |             
+      v                                            |                             
+      ----------------------                       |                     
+      |                    |                       |                     
+      |                    v                       |                     
+      |           schedule_flush_and_append        |                     
+      |                    |                       |             
+      |                    v                       |             
+      |              enlist_flusher                |                     
+      |                    |                       |             
+      |                    v                       |                     
+      |          flush_then_append_scheduled_ops   |             
  schedule_append                                   |                                     
       |                                            |             
       v                                            |                             
@@ -143,13 +146,6 @@ new_flush_sync_point                               |
 
 ========================================
 
-ImageCache --> ImageWriteBack       
-           --> FileImageCache    
-           --> ReplicatedWriteLog
-
-
-=========================================
-
   
        ImageRequest::send
                 |
@@ -170,90 +166,6 @@ ImageWriteBack   -------->------|
                                 |
                               RADOS
 
-================== aio write ========================
-
- ImageRequest::send
-        |
-        v (m_bypass_image_cache || m_image_ctx.image_cache == nullptr
-        |
-       / \
-      /   \
-     /     \
-   true   false
-    |       |
-   (1)     (2)
-
-
-(1)
-    send_request()
-        |
-AbstractImageWriteRequest::send_request() 
-        |
- Striper::file_to_extents
-        |
-AbstractImageWriteRequest::send_object_requests --> (1-2)
-        |
- image_ctx.object_cacher != NULL --> if false, return.
-        |
- send_object_cache_requests
-        |
- ImageCtx.ObjectCache::discard_set(image_ctx.object_set, object_extents)
-
-
-(1-2)
-    ObjectRequestHandle* req = create_object_request()
-    
-
-
-(2)
-    ImageWriteRequest::send_image_cache_request()
-                        |
-     image_ctx->image_cache->aio_write(0
-                        |
-        pure virtual: ImageCache::aio_write
-                        |
-        ->  ReplicatedWriteLog::aio_write --> (2-1)
-        ->  FileImageCache::aio_write     --> (2-2)
-        ->  ImageWriteBack::aio_write     --> (2-3)
-            
-(2-1):
-    write_req = new C_WriteRequest(...)
-    guarded_ctx = new GuardedRequestFunctionContext(..., write_req, ...)
-    
-    xx = GuardedRequest(guarded_ctx, ..)
-    detain_guarded_request(xx)
-    
-    detain_guared_request_barrier_helper(req)
-    
-    detain_guarded_request_helper
-    
-    m_write_log_guard.detain, namely WriteLogGuard.detain()
-
-    namely: BlockGuard<GuardedRequest>.detain()
-
-    BlockGuard::detain()
-    
-    BlockGuard::block_ios.emplace_back(block_io)
-    namely, list<BlockIO> block_ios; block_ios.push_back(block_io);
-
-    
-    
-(2-2)
-    
-    req = new C_WriteBlockRequest<I>(....) 
-    map_blocks(IO_TYPE_WRITE, ... , req)
-                    |
-                    | 1->n
-                    |
-        BlockGuard::BlockIOs block_ios; 
-        m_block_guard.create_block_ios(..., block_ios, ...) 
-                    |
-            for(auto block_io : block_ios) 
-                map_block(true, block_io)   --> ????
-                    |
-                m_policy->tick()
-                    |
-             block_request->activate()
 
 =============================================================================================
 ======================================== rwl's request ======================================
@@ -1277,19 +1189,6 @@ boost::intrusive::list_base_hook<>      boost::intrusive::set_base_hook<>
    - }
  
 
-
-== rwl.retire_entries ==
-
-   -   TX_BEGIN(m_internal->m_log_pool) // retire_entries
-   -   {
-   -     if (D_RO(pool_root)->flushed_sync_gen < flushed_sync_gen)
-   -     {
-   -       D_RW(pool_root)->flushed_sync_gen = flushed_sync_gen;
-   -     }
-   -
-   -     D_RW(pool_root)->first_valid_entry = first_valid_entry; 
-   -
-   -     for (auto &entry: retiring_entries) {
    -       if (entry->is_write() || entry->is_writesame()) {
    -         TX_FREE(entry->ram_entry.write_data);
    -       }

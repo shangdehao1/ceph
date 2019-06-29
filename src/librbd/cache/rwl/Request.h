@@ -36,6 +36,7 @@ public:
 
   virtual const char *get_name() const = 0;
 
+  /// blockguard_acquired
   void set_cell(BlockGuardCell *cell) {
     ceph_assert(cell);
     ceph_assert(!m_cell);
@@ -154,7 +155,7 @@ struct C_ReadRequest : public Context
   }
 };
 
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this IO, and the
  * state information about the progress of this IO.
  *
@@ -167,21 +168,21 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
 {
   using C_GuardedBlockIORequest<T>::rwl;
 
+  int fadvise_flags;
   Extents m_image_extents;
   ExtentsSummary<Extents> m_image_extents_summary;
 
   bufferlist bl;     /* User data derived from aio_write interface */
   Context* user_req; /* User callback derived from aio_write interface */
 
-  int fadvise_flags;
 
   // guarantee user callback just be called one time.
   std::atomic<bool> m_user_req_completed = {false};
   std::atomic<bool> m_finish_called = {false};
 
   utime_t m_arrived_time;
-  utime_t m_allocated_time;               /* When allocation began */
-  utime_t m_dispatched_time;              /* When dispatch began */
+  utime_t m_allocated_time;    
+  utime_t m_dispatched_time;   
   utime_t m_user_req_completed_time;
 
   /* Detained in blockguard (overlapped with a prior IO) */
@@ -207,15 +208,15 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
     return os;
   };
 
-  C_BlockIORequest(T &rwl, const utime_t arrived, Extents &&image_extents,
+  C_BlockIORequest(T &rwl, const utime_t arrived, Extents&& image_extents,
                    bufferlist&& bl, const int fadvise_flags, Context *user_req)
     : C_GuardedBlockIORequest<T>(rwl),
-      m_image_extents(std::move(image_extents)),
       fadvise_flags(fadvise_flags),
+      m_image_extents(std::move(image_extents)),
       m_image_extents_summary(m_image_extents),
-      m_arrived_time(arrived),
       bl(std::move(bl)),  // ##
-      user_req(user_req)  // ##
+      user_req(user_req), // ##
+      m_arrived_time(arrived)
   {
     /* Remove zero length image extents from input */
     for (auto it = m_image_extents.begin(); it != m_image_extents.end(); ) {
@@ -294,12 +295,11 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
   }
 };
 
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this write.
  *
  * Block guard is not released until the write persists everywhere (this is
  * how we guarantee to each log replica that they will never see overlapping writes).
- *
  */
 template <typename T>
 struct C_WriteRequest : public C_BlockIORequest<T>
@@ -342,7 +342,6 @@ struct C_WriteRequest : public C_BlockIORequest<T>
 
   void blockguard_acquired(GuardedRequestFunctionContext &guard_ctx) {
     ceph_assert(guard_ctx.m_cell);
-
     this->m_detained = guard_ctx.m_state.detained; /* overlapped */
     this->m_queued = guard_ctx.m_state.queued; /* queued behind at least one barrier */
     this->set_cell(guard_ctx.m_cell);
@@ -411,6 +410,8 @@ struct C_WriteRequest : public C_BlockIORequest<T>
   /* Plain writes will allocate one buffer per request extent */
   virtual void setup_buffer_resources(uint64_t &bytes_cached, uint64_t &bytes_dirtied)
   {
+    ldout(rwl.m_image_ctx.cct, 20) << dendl;
+
     for (auto &extent : this->m_image_extents)
     {
       // nice code, avoid copy costs.
@@ -451,7 +452,6 @@ struct C_WriteRequest : public C_BlockIORequest<T>
   virtual void schedule_append()
   {
     ldout(rwl.m_image_ctx.cct, 20) << dendl;
-
     ceph_assert(++m_appended == 1);
 
     /* This caller is waiting for persist, so we'll use their thread to expedite it */
@@ -477,7 +477,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
 
 };
 
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this aio_flush.
  *
  * Block guard is released as soon as the new sync point (if required) is created.
@@ -534,7 +534,6 @@ struct C_FlushRequest : public C_BlockIORequest<T>
   {
     CephContext *cct = rwl.m_image_ctx.cct;
     ldout(cct, 20) << dendl;
-  
     ceph_assert(!m_log_entry_allocated);
   
     bool allocated_here = false;
@@ -577,8 +576,7 @@ struct C_FlushRequest : public C_BlockIORequest<T>
   }
 };
 
-
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this discard. As in the
  * case of write, the block guard is not released until the discard persists
  * everywhere.
@@ -673,8 +671,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
   }
 };
 
-
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this compare and write. The
  * block guard is acquired before the read begins to guarantee atomicity of this
  * operation.  If this results in a write, the block guard will be released
@@ -752,8 +749,7 @@ struct C_CompAndWriteRequest : public C_WriteRequest<T>
   }
 };
 
-
-/**
+/*****
  * This is the custodian of the BlockGuard cell for this write same.
  *
  * A writesame allocates and persists a data buffer like a write, but the
@@ -802,10 +798,14 @@ struct C_WriteSameRequest : public C_WriteRequest<T>
     utime_t comp_latency = now - this->m_arrived_time;
     rwl.m_perfcounter->tinc(l_librbd_rwl_ws_latency, comp_latency);
   }
+
   /* Write sames will allocate one buffer, the size of the repeating pattern */
-  void setup_buffer_resources(uint64_t &bytes_cached, uint64_t &bytes_dirtied) override {
+  void setup_buffer_resources(uint64_t &bytes_cached, uint64_t &bytes_dirtied) override 
+  {
     ldout(rwl.m_image_ctx.cct, 01) << __func__ << " " << this->get_name() << " " << this << dendl;
-    assert(this->m_image_extents.size() == 1);
+
+    ceph_assert(this->m_image_extents.size() == 1);
+
     bytes_dirtied += this->m_image_extents[0].second;
     auto pattern_length = this->bl.length();
     this->m_resources.buffers.emplace_back();
@@ -821,8 +821,9 @@ struct C_WriteSameRequest : public C_WriteRequest<T>
   virtual void setup_log_operations()
   {
     ldout(rwl.m_image_ctx.cct, 01) << __func__ << " " << this->get_name() << " " << this << dendl;
+
     /* Write same adds a single WS log op to the vector, corresponding to the single buffer item created above */
-    assert(this->m_image_extents.size() == 1);
+    ceph_assert(this->m_image_extents.size() == 1);
     auto extent = this->m_image_extents.front();
     /* operation->on_write_persist connected to m_prior_log_entries_persisted Gather */
     auto operation =
@@ -850,12 +851,7 @@ struct C_WriteSameRequest : public C_WriteRequest<T>
 // =======================================================================================
 // =======================================================================================
 
-/**
- * Takes custody of write_req. Resources must already be allocated.
- *
- * Locking:
- * Acquires m_lock
- */
+// Takes custody of write_req. Resources must already be allocated.
 template <typename T>
 void C_WriteRequest<T>::dispatch()
 {
@@ -875,7 +871,7 @@ void C_WriteRequest<T>::dispatch()
 
   // step 1 : check whether need to insert new sync point.
   // step 2 : break write request down operations
-  // step 3 : link operation with resources, then initalize log entry of operation
+  // step 3 : except for entry_index, assign values to all data member which belong to in-mem WritePmemLogEntry.
   {
     uint64_t buffer_offset = 0;
 
@@ -907,15 +903,14 @@ void C_WriteRequest<T>::dispatch()
         (rwl.m_current_sync_point->log_entry->m_writes > MAX_WRITES_PER_SYNC_POINT) ||
         (rwl.m_current_sync_point->log_entry->m_bytes > MAX_BYTES_PER_SYNC_POINT))
     {
-      ldout(cct, 20) << "check if need to insert new sync point : " << dendl;
-      ldout(cct, 20) << "    - rwl.m_current_sycn_point->log_entry->m_writes > MAX_WRITES_PER_SYNC_POINT  : " << (rwl.m_current_sync_point->log_entry->m_writes > MAX_WRITES_PER_SYNC_POINT) << dendl;
-      ldout(cct, 20) << "    - rwl.m_current_sync_point->log_entry->m_bytes > MAX_BYTES_PER_SYNC_POINT :  " << (rwl.m_current_sync_point->log_entry->m_bytes > MAX_BYTES_PER_SYNC_POINT) << dendl;
-      ldout(cct, 20) << "    - rwl.m_current_sync_point->log_entry->m_writes_completed : " << rwl.m_current_sync_point->log_entry->m_writes_completed << dendl;
-
+      ldout(cct, 20) << "note : flush then insert new sync point due to the following situation :  " << dendl;
+      ldout(cct, 20) << "    - check if (rwl.m_current_sycn_point->log_entry->m_writes) > MAX_WRITES_PER_SYNC_POINT  : " << (rwl.m_current_sync_point->log_entry->m_writes > MAX_WRITES_PER_SYNC_POINT) << dendl;
+      ldout(cct, 20) << "    - check if (rwl.m_current_sync_point->log_entry->m_bytes) > MAX_BYTES_PER_SYNC_POINT :  " << (rwl.m_current_sync_point->log_entry->m_bytes > MAX_BYTES_PER_SYNC_POINT) << dendl;
+      ldout(cct, 20) << "    - check if (rwl.m_current_sync_point->log_entry->m_writes_completed) : " << rwl.m_current_sync_point->log_entry->m_writes_completed << dendl;
       rwl.flush_new_sync_point(nullptr, on_exit);
     }
 
-    // create op set, just create it.
+    // create op set (op set still is empty)
     m_op_set = make_unique<WriteLogOperationSet<T>>(rwl, now,
                                                     rwl.m_current_sync_point, // belog to which sync point
                                                     rwl.m_persist_on_flush,
@@ -924,7 +919,7 @@ void C_WriteRequest<T>::dispatch()
 
     ceph_assert(m_resources.allocated);
 
-    /* m_op_set->operations initialized differently for plain write or write same */
+    // new operation, then put it to op set.
     this->setup_log_operations();
 
     /* when reading this for sentence, should recall all data member of PmemLogEntry */
@@ -933,43 +928,36 @@ void C_WriteRequest<T>::dispatch()
     {
       // call this method of base class to obtain WriteLogOperation
       auto operation = gen_op->get_write_op();
-
       log_entries.emplace_back(operation->log_entry);
 
       rwl.m_perfcounter->inc(l_librbd_rwl_log_ops, 1);
+    
+      // WriteLogPmemEntry consist of seven data member.
 
-      // payload need AEP space
-      operation->log_entry->ram_entry.has_data = 1;
-      operation->log_entry->ram_entry.write_data = allocation->buffer_oid;
-      operation->buffer_alloc = &(*allocation);
+      // data 4 : image_offset_bytes --> construction
+      // data 5 : image_bytes --> construction
+      // data 3 : entry_id --> alloc_op_log_entries will do this.
 
-
+      operation->log_entry->ram_entry.has_data = 1; // data 6
+      operation->log_entry->ram_entry.write_data = allocation->buffer_oid; // data 7
       ceph_assert(!TOID_IS_NULL(operation->log_entry->ram_entry.write_data));
-
-      operation->log_entry->pmem_buffer = D_RW(operation->log_entry->ram_entry.write_data);
-      operation->log_entry->ram_entry.sync_gen_number = rwl.m_current_sync_gen;
-
-      /* Persist on flush mode. Sequence is never used. */
-      if (m_op_set->m_persist_on_flush)
-      {
+      operation->log_entry->ram_entry.sync_gen_number = rwl.m_current_sync_gen; // data 1
+      if (m_op_set->m_persist_on_flush) {
         operation->log_entry->ram_entry.write_sequence_number = 0;
-      }
-      else
-      {
-        /* Persist on write */
-        operation->log_entry->ram_entry.write_sequence_number = ++rwl.m_last_op_sequence_num;
+      } else {
+        operation->log_entry->ram_entry.write_sequence_number = ++rwl.m_last_op_sequence_num; // data 2
         operation->log_entry->ram_entry.sequenced = 1;
       }
-
-      // this entry is not sync point
       operation->log_entry->ram_entry.sync_point = 0;
       operation->log_entry->ram_entry.discard = 0;
+
+      operation->buffer_alloc = &(*allocation);
+      operation->log_entry->pmem_buffer = D_RW(operation->log_entry->ram_entry.write_data);
 
       // ####### break down bufferlist of request, then assgin sub-data to every operation ########
       operation->bl.substr_of(this->bl, buffer_offset, operation->log_entry->write_bytes());
 
       buffer_offset += operation->log_entry->write_bytes();
-
       allocation++;
     } // for m_op_sets
   } // scope for lock rwl.m_lock
@@ -977,19 +965,18 @@ void C_WriteRequest<T>::dispatch()
   m_op_set->m_extent_ops_appending->activate();
   m_op_set->m_extent_ops_persist->activate();
 
-  // bufferlist --> pmem_buffer
+  // step 4 : bufferlist --> pmem_buffer
   for (auto &operation : m_op_set->operations)
   {
     auto write_op = operation->get_write_op();
     ceph_assert(write_op != nullptr);
 
     bufferlist::iterator i(&write_op->bl);
-
     rwl.m_perfcounter->inc(l_librbd_rwl_log_op_bytes, write_op->log_entry->write_bytes());
-
     i.copy((unsigned)write_op->log_entry->write_bytes(), (char*)write_op->log_entry->pmem_buffer);
   }
 
+  // step 5 :  
   /*
    * Adding these entries to the map of (blocks to log entries) makes them
    * readable by this application.
@@ -1094,8 +1081,10 @@ void C_WriteRequest<T>::dispatch()
 /**
  * Attempts to allocate log resources for a write. Returns true if successful.
  *
- * Resources include 1 lane per extent, 1 log entry per extent, and the payload
- * data space for each extent.
+ * Resources include 
+ *  - 1 lane per extent
+ *  - 1 log entry per extent
+ *  - 1 PM space for per extent.
  *
  * Lanes are released after the write persists via release_write_lanes()
  */
@@ -1127,6 +1116,7 @@ bool C_WriteRequest<T>::alloc_resources()
     {
       this->m_waited_lanes = true;
       alloc_succeeds = false;
+
       ldout(cct, 20)<< "Throttling mechanism : check lanes -- fails " << dendl;
     }
 
@@ -1134,7 +1124,9 @@ bool C_WriteRequest<T>::alloc_resources()
     {
       this->m_waited_entries = true; // ##
       alloc_succeeds = false;
+
       no_space = true; /* Entries must be retired */
+
       ldout(cct, 20) << "check alloc log entries -- fails" << dendl;
     }
 
@@ -1145,7 +1137,9 @@ bool C_WriteRequest<T>::alloc_resources()
         this->m_waited_buffers = true;
       }
       alloc_succeeds = false;
+
       no_space = true; /* Entries must be retired */
+
       ldout(cct, 20) << "check alloc payload pmem buffer -- fails" << dendl;
     }
   }
@@ -1165,8 +1159,9 @@ bool C_WriteRequest<T>::alloc_resources()
       bytes_allocated += buffer.allocation_size;
 
       utime_t before_reserve = ceph_clock_now();
+      ceph_assert(buffer.allocated == false);   
 
-      // directly alloc resources from AEP space.
+      // reverse AEP space
       buffer.buffer_oid = pmemobj_reserve(rwl.m_internal->m_log_pool,
                                           &buffer.buffer_alloc_action, // action
                                           buffer.allocation_size, 0);
@@ -1182,7 +1177,6 @@ bool C_WriteRequest<T>::alloc_resources()
         ldout(cct, 20) << "reserver pmem payload space fails..." << dendl;
         break;
       } else {
-        // #####
         buffer.allocated = true;
       }
 
@@ -1191,11 +1185,11 @@ bool C_WriteRequest<T>::alloc_resources()
                                        << "." << buffer.buffer_oid.oid.off << ", size=" << buffer.allocation_size << dendl;
       }
     } // for
-  } // if
+  } 
 
   /* mannual exclusive to modify rwl data member */
 
-  // AEP log entry
+  // AEP log entry and lanes
   if (alloc_succeeds)
   {
     unsigned int num_extents = this->m_image_extents.size();
@@ -1207,7 +1201,6 @@ bool C_WriteRequest<T>::alloc_resources()
     if ((rwl.m_free_lanes >= num_extents) && (rwl.m_free_log_entries >= num_extents))
     {
       rwl.m_free_lanes -= num_extents;
-
       rwl.m_free_log_entries -= num_extents;
 
       // this express that these resource just reserver, but don't use ????
@@ -1224,7 +1217,7 @@ bool C_WriteRequest<T>::alloc_resources()
     }
   }
 
-  // if allocation process have any error, just free other space....sdh
+  // if allocation process have any error, just release allocated resources...sdh
   if (!alloc_succeeds)
   {
     /* On alloc failure, free any buffers we did allocate */
@@ -1250,90 +1243,119 @@ bool C_WriteRequest<T>::alloc_resources()
 }
 
 
-
-/*
-template <typename T>
-bool C_FlushRequest<T>::alloc_resources()
-{
-  CephContext *cct = rwl.m_image_ctx.cct;
-  ldout(cct, 20) << dendl;
-
-  ceph_assert(!m_log_entry_allocated);
-
-  bool allocated_here = false;
-
-  Mutex::Locker locker(rwl.m_lock);
-
-  if (rwl.m_free_log_entries)
-  {
-    rwl.m_free_log_entries--;
-
-    m_log_entry_allocated = true;
-    allocated_here = true;
-  }
-
-  return allocated_here;
-}
-
-template <typename T>
-void C_FlushRequest<T>::dispatch()
-{
-  CephContext *cct = rwl.m_image_ctx.cct;
-  ldout(cct, 20) << dendl;
-
-  utime_t now = ceph_clock_now();
-  ceph_assert(m_log_entry_allocated);
-  this->m_dispatched_time = now;
-
-  op = std::make_shared<SyncPointLogOperation<T>>(rwl, to_append, now);
-
-  rwl.m_perfcounter->inc(l_librbd_rwl_log_ops, 1);
-
-  rwl.schedule_append(op);
-}
-
-template <typename T>
-bool C_DiscardRequest<T>::alloc_resources()
-{
-  CephContext *cct = rwl.m_image_ctx.cct;
-  ldout(cct, 20) << dendl;
-
-  ceph_assert(!m_log_entry_allocated);
-
-  bool allocated_here = false;
-
-  Mutex::Locker locker(rwl.m_lock);
-
- // No bytes are allocated for a discard, but we count the discarded bytes
- // as dirty.  This means it's possible to have more bytes dirty than
- // there are bytes cached or allocated. 
-  if (rwl.m_free_log_entries) {
-    rwl.m_free_log_entries--; // ##
-    rwl.m_bytes_dirty += op->log_entry->bytes_dirty();
-    m_log_entry_allocated = true; // ##
-    allocated_here = true;
-  }
-
-  return allocated_here;
-}
-
-template <typename T>
-void C_DiscardRequest<T>::dispatch()
-{
-  utime_t now = ceph_clock_now();
-  ceph_assert(m_log_entry_allocated);
-  this->m_dispatched_time = now;
-
-  rwl.m_blocks_to_log_entries.add_log_entry(op->log_entry); // ##
-
-  rwl.m_perfcounter->inc(l_librbd_rwl_log_ops, 1);
-
-  rwl.schedule_append(op);
-}
-*/
-
-
 } // namespace cache
 } // namespace librbd
 
 #endif
+
+
+/*********************************************************************************
+ *
+ *
+ * C_GuardedBlockIORequest
+ *   |
+ *   ---> C_ReadRequest
+ *   |
+ *   ---> C_BlockIORequest
+ *          |
+ *          ---> C_DiscardRequest
+ *          |
+ *          ---> C_FlushRequest
+ *          |
+ *          ---> C_WriteRequest
+ *                 |
+ *                 ---> C_WriteSameRequest 
+ *                 |
+ *                 ---> C_CompAndWriteRequest
+ *
+ *
+ *********************************************************************************
+ *
+ * Context::complete 
+ *   |
+ *   ---> BlockIORequest::finish
+ *           |
+ *           ---> BlockIORequest::complete_user_request
+ *           |        |
+ *           |        ---> user callback
+ *           |        
+ *           |
+ *           ---> child_request::finish_req
+ *                  |   
+ *                  ---> C_WriteRequest::finish_req
+ *                  |        |
+ *                  |        ---> rwl.release_lanes
+ *                  |        |
+ *                  |        ---> C_GuardedBlockIORequest::release_cell
+ *                  |                |
+ *                  |                ---> rwl.release_guard_request
+ *                  |                 
+ *                  ---> C_FlushRequest::finish_req           
+ *                  |        |            
+ *                  |        ---> nothing to do           
+ *                  |                     
+ *                  ---> C_DiscardRequest::finish_req           
+ *                           |   
+ *                           ---> nothing to do  
+ *
+ *
+ ***********************************************************************************
+ *
+ * GuardedRequestFunctionContext 
+ *    |
+ *    ---> C_WriteRequest::blockguard_acquired
+ *            |
+ *            ---> C_GuardedBlockIORequest::set_cell
+ * 
+ * 
+ ***********************************************************************************
+ *    
+ * 
+ * 
+ * 
+ * 
+ *       
+ *********************************************************************************/
+
+/*
+ for (auto &gen_op : m_op_set->operations)
+    {
+      // call this method of base class to obtain WriteLogOperation
+      auto operation = gen_op->get_write_op();
+      log_entries.emplace_back(operation->log_entry);
+
+      rwl.m_perfcounter->inc(l_librbd_rwl_log_ops, 1);
+
+      // payload need AEP space
+      operation->log_entry->ram_entry.has_data = 1;
+      operation->log_entry->ram_entry.write_data = allocation->buffer_oid;
+      operation->buffer_alloc = &(*allocation);
+
+      ceph_assert(!TOID_IS_NULL(operation->log_entry->ram_entry.write_data));
+
+      operation->log_entry->pmem_buffer = D_RW(operation->log_entry->ram_entry.write_data);
+      operation->log_entry->ram_entry.sync_gen_number = rwl.m_current_sync_gen;
+
+      if (m_op_set->m_persist_on_flush)
+      {
+        operation->log_entry->ram_entry.write_sequence_number = 0;
+      }
+      else
+      {
+        operation->log_entry->ram_entry.write_sequence_number = ++rwl.m_last_op_sequence_num;
+        operation->log_entry->ram_entry.sequenced = 1;
+      }
+
+      // this entry is not sync point
+      operation->log_entry->ram_entry.sync_point = 0;
+      operation->log_entry->ram_entry.discard = 0;
+
+      // ####### break down bufferlist of request, then assgin sub-data to every operation ########
+      operation->bl.substr_of(this->bl, buffer_offset, operation->log_entry->write_bytes());
+
+      buffer_offset += operation->log_entry->write_bytes();
+
+      allocation++;
+    } // for m_op_sets
+
+*/

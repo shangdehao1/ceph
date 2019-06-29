@@ -6,6 +6,12 @@ namespace cache {
 
 namespace rwl {
 
+/**
+ * Extent --> [offset, len]
+ * BlockExtent --> [first_byte, last_byte]  ---> librbd/BlockGuard.h
+ * 
+ */
+
 typedef ReplicatedWriteLog<ImageCtx>::Extent Extent;
 typedef ReplicatedWriteLog<ImageCtx>::Extents Extents;
 
@@ -53,8 +59,8 @@ public:
 
   friend std::ostream &operator<<(std::ostream &os, const ExtentsSummary &s)
   {
-    os << "total_bytes=" << s.total_bytes << ", " << "first_image_byte=" << s.first_image_byte << ", "
-       << "last_image_byte=" << s.last_image_byte << "";
+    os << "total_bytes=" << s.total_bytes << ", " << "first_image_byte=" 
+       << s.first_image_byte << ", last_image_byte= "<< s.last_image_byte << "";
     return os;
   };
 
@@ -90,7 +96,7 @@ public:
       }
     }
   }
-  // [first_image_byte, last_image_byte]
+
   const BlockExtent block_extent()
   {
     return BlockExtent(first_image_byte, last_image_byte);

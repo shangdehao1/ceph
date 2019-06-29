@@ -1,14 +1,15 @@
 #ifndef CEPH_LIBRBD_CACHE_REPLICATED_WRITE_LOG
 #define CEPH_LIBRBD_CACHE_REPLICATED_WRITE_LOG
 
+#include <functional>
+#include <list>
+
 #include "common/RWLock.h"
 #include "common/Timer.h"
 #include "common/WorkQueue.h"
 #include "librbd/cache/ImageCache.h"
 #include "librbd/Utils.h"
 #include "librbd/BlockGuard.h"
-#include <functional>
-#include <list>
 #include "common/Finisher.h"
 #include "include/ceph_assert.h"
 #include "librbd/cache/LogMap.h"
@@ -29,6 +30,7 @@ class ReplicatedWriteLog : public ImageCache<ImageCtxT>
 public:
   using typename ImageCache<ImageCtxT>::Extent;
   using typename ImageCache<ImageCtxT>::Extents;
+
   using This = ReplicatedWriteLog<ImageCtxT>;
   using SyncPointT = rwl::SyncPoint<This>;
   using GenericLogOperationT = rwl::GenericLogOperation<This>;
@@ -92,13 +94,6 @@ private:
 
   typedef std::list<C_WriteRequest<This> *> C_WriteRequests;
   typedef std::list<C_BlockIORequest<This> *> C_BlockIORequests;
-
-  // ===== BlockGuard =====
-
-  BlockGuardCell* detain_guarded_request_helper(GuardedRequest &req);
-  BlockGuardCell* detain_guarded_request_barrier_helper(GuardedRequest &req);
-  void detain_guarded_request(GuardedRequest &&req);
-  void release_guarded_request(BlockGuardCell *cell);
 
   // ==== RWL status =======
 
@@ -167,17 +162,21 @@ private:
 
   /************* Acquire locks in order declared here ********************/
 
+  // retire_entries
   mutable Mutex m_log_retire_lock;
 
-  /* Hold a read lock on m_entry_reader_lock to add readers to log entry
-   * bufs. Hold a write lock to prevent readers from being added (e.g. when
-   * removing log entrys from the map). No lock required to remove readers. */
+  /* Hold a read lock on m_entry_reader_lock to add readers to log entry bufs. 
+   * Hold a write lock to prevent readers from being added when removing log entrys from the map. 
+   * No lock required to remove readers. 
+   * read lock : aio_read / process_writeback_dirty_entries
+   * write lock : retire_entries */
   mutable RWLock m_entry_reader_lock;
 
   /* Hold m_deferred_dispatch_lock while consuming from m_deferred_ios. */
   mutable Mutex m_deferred_dispatch_lock;
 
   /* Hold m_log_append_lock while appending or retiring log entries. */
+  // append_scheduled_ops / retire_entries / persist_last_flushed_sync_gen
   mutable Mutex m_log_append_lock;
 
   /* Used for most synchronization */
@@ -189,16 +188,21 @@ private:
   /* Used in WriteLogEntry::get_pmem_bl() to syncronize between threads making entries readable */
   mutable Mutex m_entry_bl_lock;
 
-  /* Use m_blockguard_lock for the following 3 things */
+  // ===== block guard  =========
   WriteLogGuard::BlockOperations m_awaiting_barrier;
   bool m_barrier_in_progress = false;
   BlockGuardCell *m_barrier_cell = nullptr;
+  // 
+  BlockGuardCell* detain_guarded_request_helper(GuardedRequest &req);
+  BlockGuardCell* detain_guarded_request_barrier_helper(GuardedRequest &req);
+  void detain_guarded_request(GuardedRequest &&req);
+  void release_guarded_request(BlockGuardCell *cell);
 
   bool m_wake_up_requested = false;
   bool m_wake_up_scheduled = false;
   bool m_wake_up_enabled = true;
 
-  bool m_appending = false;
+  bool m_appending = false; // schedule_append / append_scheduled_ops
   bool m_dispatching_deferred_ops = false;
 
   Contexts m_flush_complete_contexts;
@@ -266,70 +270,47 @@ private:
   void rwl_init(Context *on_finish, DeferredContexts &later);
   void load_existing_entries(DeferredContexts &later);
 
-  // background thread to execute retire / re-dispatch / flush
-  void wake_up();
-  void process_work();
-
-  void flush_dirty_entries(Context *on_finish);
-  bool can_flush_entry(const std::shared_ptr<GenericLogEntry> log_entry);
-  Context *construct_flush_entry_ctx(const std::shared_ptr<GenericLogEntry> log_entry);
-
-  void persist_last_flushed_sync_gen(void);
-  bool handle_flushed_sync_point(std::shared_ptr<SyncPointLogEntry> log_entry);
-  void sync_point_writer_flushed(std::shared_ptr<SyncPointLogEntry> log_entry);
-
-  void process_writeback_dirty_entries();
-
-  bool can_retire_entry(const std::shared_ptr<GenericLogEntry> log_entry);
-  bool retire_entries(const unsigned long int frees_per_tx = MAX_FREE_PER_TRANSACTION);
-
-  // sync point
-  void init_flush_new_sync_point(DeferredContexts &later);
-  void new_sync_point(DeferredContexts &later);
-  C_FlushRequest<ReplicatedWriteLog<ImageCtxT>>* make_flush_req(Context *on_finish);
-
-  void flush_new_sync_point(C_FlushRequestT *flush_req, DeferredContexts &later);
-  void flush_new_sync_point_if_needed(C_FlushRequestT *flush_req, DeferredContexts &later);
-
-  void dispatch_deferred_writes(void);
-
+  void alloc_and_dispatch_io_req(C_BlockIORequestT *write_req);
   void release_write_lanes(C_WriteRequestT *write_req);
 
-  void alloc_and_dispatch_io_req(C_BlockIORequestT *write_req);
-  void append_scheduled_ops(void);
+  // retire + dispatch + flush
+  void wake_up(); // 1
+  void process_work(); // 2
+  bool retire_entries(const unsigned long int frees_per_tx = MAX_FREE_PER_TRANSACTION); // 3-1
+  bool can_retire_entry(const std::shared_ptr<GenericLogEntry> log_entry); // 3-2
+  void dispatch_deferred_writes(void); // 4
+  void process_writeback_dirty_entries(); // 5-1
+  bool can_flush_entry(const std::shared_ptr<GenericLogEntry> log_entry); // 5-2
+  Context *construct_flush_entry_ctx(const std::shared_ptr<GenericLogEntry> log_entry); // 5-3
+  void sync_point_writer_flushed(std::shared_ptr<SyncPointLogEntry> log_entry); // 5-4
+  bool handle_flushed_sync_point(std::shared_ptr<SyncPointLogEntry> log_entry); // 5-5
+  void persist_last_flushed_sync_gen(void); // 5-6
 
-  void enlist_op_appender(); //  enqueue flush_then_append_scheuled_ops work queue...sdh
+  // sync point
+  void init_flush_new_sync_point(DeferredContexts &later); // 1 
+  void flush_new_sync_point_if_needed(C_FlushRequestT *flush_req, DeferredContexts &later); // 1
+  void flush_new_sync_point(C_FlushRequestT *flush_req, DeferredContexts &later); // 2
+  void new_sync_point(DeferredContexts &later); // 3
+  C_FlushRequest<ReplicatedWriteLog<ImageCtxT>>* make_flush_req(Context *on_finish); // 4
 
-  void schedule_append(GenericLogOperationsVectorT &ops); // rwl will take custody of ops, then put them into m_ops_to_append...sdh
+  // append
+  void schedule_flush_and_append(GenericLogOperationsVectorT &ops); // 1
+  void enlist_op_flusher(); // 2
+  void flush_then_append_scheduled_ops(void); // 3
+  template <typename V> void flush_pmem_buffer(V& ops);  // 4
+  void schedule_append(GenericLogOperationsVectorT &ops); // 5
   void schedule_append(GenericLogOperationsT &ops);
   void schedule_append(GenericLogOperationSharedPtrT op);
+  void enlist_op_appender(); // 6
+  void append_scheduled_ops(void); // 7
+  void alloc_op_log_entries(GenericLogOperationsT &ops); // 8
+  int append_op_log_entries(GenericLogOperationsT &ops); // 9
+  void flush_op_log_entries(GenericLogOperationsVectorT &ops); // 10
+  void complete_op_log_entries(GenericLogOperationsT &&ops, const int r); // 11
 
-  void flush_then_append_scheduled_ops(void);
+  void schedule_complete_op_log_entries(GenericLogOperationsT &&ops, const int r); // disable
 
-  void enlist_op_flusher();
-
-  void schedule_flush_and_append(GenericLogOperationsVectorT &ops);
-
-  /*  Flush the pmem regions for the data blocks of a set of operations */
-  template <typename V>
-  void flush_pmem_buffer(V& ops); 
-
-  // Allocate the (already reserved) write log entries for a set of operations.
-  void alloc_op_log_entries(GenericLogOperationsT &ops);
-
-  /* Flush the persistent write log entries set of ops. The entries must be contiguous in persistent memory. */
-  void flush_op_log_entries(GenericLogOperationsVectorT &ops);
-
-  /* Write and persist the (already allocated) write log entries and data buffer allocations for a set of ops. 
-   * The data buffer for each of these must already have been persisted to its reserved area. */
-  int append_op_log_entries(GenericLogOperationsT &ops);
-
-  /* Complete a set of write ops with the result of append_op_entries.*/
-  void complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
-
-  /* Push op log entry completion to a WQ. */
-  void schedule_complete_op_log_entries(GenericLogOperationsT &&ops, const int r);
-
+  void flush_dirty_entries(Context *on_finish);
   void internal_flush(Context *on_finish, bool invalidate=false, bool discard_unflushed_writes=false);
 };
 

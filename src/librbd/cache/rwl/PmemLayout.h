@@ -26,7 +26,7 @@ struct WriteLogPmemEntry
     uint8_t entry_valid :1; /* if 0, this entry is free */
     uint8_t sync_point :1;  /* No data. No write sequence number. Marks sync point for this sync gen number */
     uint8_t sequenced :1;   /* write sequence number is valid */
-    uint8_t has_data :1;    /* write_data field is valid (else ignore) */
+    uint8_t has_data :1;    /* write_data field is valid (else ignore), for example C_WriteRequest */
     uint8_t discard :1;     /* has_data will be 0 if this is a discard */
     uint8_t writesame :1;   /* ws_datalen indicates length of data at write_bytes */
   };

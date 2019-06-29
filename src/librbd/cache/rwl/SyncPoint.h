@@ -13,8 +13,7 @@ class SyncPoint
 {
 public:
   SyncPoint(T &rwl, const uint64_t sync_gen_num)
-    : rwl(rwl),
-      log_entry(std::make_shared<SyncPointLogEntry>(sync_gen_num)) 
+    : rwl(rwl), log_entry(std::make_shared<SyncPointLogEntry>(sync_gen_num)) 
   {
     m_prior_log_entries_persisted = new C_Gather(rwl.m_image_ctx.cct, nullptr);
     m_sync_point_persist = new C_Gather(rwl.m_image_ctx.cct, nullptr);
@@ -34,7 +33,6 @@ public:
 public:
   T &rwl;
 
-  // when construct sync point, create this log entry.
   std::shared_ptr<SyncPointLogEntry> log_entry;
 
   // link   : rwl::new_sync_point
@@ -97,48 +95,6 @@ public:
     return p.format(os);
   }
 };
-
-// ========
-
-/*
-template <typename T>
-SyncPoint<T>::SyncPoint(T &rwl, uint64_t sync_gen_num)
- : rwl(rwl),
-   log_entry(std::make_shared<SyncPointLogEntry>(sync_gen_num))
-{
-  m_prior_log_entries_persisted = new C_Gather(rwl.m_image_ctx.cct, nullptr);
-  m_sync_point_persist = new C_Gather(rwl.m_image_ctx.cct, nullptr);
-
-  // When set MAX_WRITES_PER_SYNC_POINT, what's factor need to be considered ? 
-  m_on_sync_point_appending.reserve(MAX_WRITES_PER_SYNC_POINT + 2);
-  m_on_sync_point_persisted.reserve(MAX_WRITES_PER_SYNC_POINT + 2);
-}
-
-template <typename T>
-SyncPoint<T>::~SyncPoint()
-{
-  ceph_assert(m_on_sync_point_appending.empty());
-  ceph_assert(m_on_sync_point_persisted.empty());
-  ceph_assert(!earlier_sync_point);
-}
-
-template <typename T>
-std::ostream &SyncPoint<T>::format(std::ostream &os) const
-{
-  os << "log_entry=[" << *log_entry << "], "
-     << "earlier_sync_point=" << earlier_sync_point << ", "
-     << "later_sync_point=" << later_sync_point << ", "
-     << "m_final_op_sequence_num=" << m_final_op_sequence_num << ", "
-     << "m_prior_log_entries_persisted=" << m_prior_log_entries_persisted << ", "
-     << "m_prior_log_entries_persisted_complete=" << m_prior_log_entries_persisted_complete << ", "
-     << "m_append_scheduled=" << m_append_scheduled << ", "
-     << "m_appending=" << m_appending << ", "
-     << "m_on_sync_point_appending=" << m_on_sync_point_appending.size() << ", "
-     << "m_on_sync_point_persisted=" << m_on_sync_point_persisted.size() << "";
-  return os;
-};
-*/
-
 
 } // namespace rwl
 } // namespace cache

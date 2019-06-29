@@ -16,7 +16,7 @@ struct BlockGuardReqState
 
   bool detained = false;
 
-  /* Queued for barrier */
+  /* Queued for barrier, namely enqueue rwl.m_awaiting_barrier */
   bool queued = false;
 
   friend std::ostream &operator<<(std::ostream &os, const BlockGuardReqState &r) {
@@ -29,14 +29,13 @@ struct BlockGuardReqState
 class GuardedRequestFunctionContext : public Context
 {
 private:
-  /* lambda function */
+  /* lambda function derived from rwl.aio_xxx method */
   boost::function<void(GuardedRequestFunctionContext&)> m_callback;
 
   void finish(int r) override {
     ceph_assert(m_cell);
     m_callback(*this);
   }
-
 
 public:
 
@@ -52,8 +51,13 @@ public:
   GuardedRequestFunctionContext &operator=(const GuardedRequestFunctionContext&) = delete;
 };
 
+/**
+ * there are two situations which will set barrier to be ture.
+ *  -- aio_flush and internal_flush --
+ */
 struct GuardedRequest
 {
+  /* [image_first_byte, image_last_byte] */
   const BlockExtent block_extent;
 
   /* Work to do when guard on range obtained */
@@ -64,9 +68,6 @@ struct GuardedRequest
                  bool barrier = false)
     : block_extent(block_extent), guard_ctx(on_guard_acquire)
   {
-    // the following situation, barrier is true.
-    //  - aio_flush
-    //  - internal_flush
     guard_ctx->m_state.barrier = barrier;
   }
 
@@ -78,9 +79,117 @@ struct GuardedRequest
   };
 };
 
-
 } // rwl
 } // cache
 } // librbd
 
 #endif
+
+
+
+/*
+
+BlockGuardCell rwl.m_barrier_cell 
+bool rwl.m_barrier_in_progress
+queue<GuardedRequest> rwl.m_awaiting_barrier
+
+
+                                 rwl_internface
+                                       |
+                                       v
+                                C_WriteRequest
+                                 |          | 
+                                 v          v
+                          BlockExtent     GuardedRequestFunctionContext    aio_flush or internal_flush
+                               |                    |                                |
+                               v                    v                                v true
+                               |                    |                                |
+                               -------------------------------------------------------
+                                         |             |          |
+                                         v             v          v
+                      GuardedRequest(block_extent, guard_ctx, is_barrier)
+                               |
+                               v
+                               |
+rwl.detain_guarded_request(guard_request)
+    |
+    ---> cell = detain_guarded_request_barrier_helper
+    |                      |
+    |                      v
+    |                      |                       true
+    |            rwl.m_barrier_in_progress  -------------------> guard_request->guard_ctx->m_state.queued = true
+    |                      |                               |
+    |                false v                               ----> rwl.m_awaiting_barrier.push_back(guard_request)
+    |                      |                               |
+    |                      |                               ----> cell = nullptr  --------------------->------------------------------------------------------
+    |                      |                                                                                                                                |    
+    |                      |                                                                                                                                |            
+    |                      |                              true                                                                                              |    
+    |      guard_request->guard_ctx->m_state.barrier ------------->  rwl.m_barrier_in_progress = true                                                       |            
+    |                      |                                                       |                                                                        |            
+    |                false v                                                       v                                                                        |    
+    |                      |                                         guard_request->guard_ctx->m_state.current_barrier = true                               |            
+    v                      |                                                       |                                                                        |            
+    |                      ------------<-----------------------<--------------------                                                                        |            
+    |                      |                                                                                                                                |    
+    |                      v                                                                                                                                |    
+    |       cell = detain_guarded_request_helper  ----> rwl.m_write_log_guard.detain(guard_request->block_extent, block_request, &cell)                     |            
+    |                      |                                                                                                       |                        |            
+    |                      v        yes                                                                                            ------------------------>|            
+    |                if(barrier) -------->  rwl.m_barrier_cell = cell                                                                                       |            
+    |                                                                                                                                                       |
+    |                                                                                                                                                       |
+    |                                                                                                                                                       |
+    |                                                                                                                                                       |
+    |        ------------------------------------------------------------------------------------------------------------------------------------------------   
+    |        |
+    |        v
+    |        |
+    ---> if(cell)
+           |
+           ----> guard_request->guard_ctx->m_cell = cell
+           |
+           ----> guard_request->guard_ctx->complete(0)
+                                              |
+                                              v
+                                              |
+-----------------------------------------------
+|
+|
+|
+|
+|      rwl.internal_flush    rwl.aio_flush       GuardedBlockIORequest::release_cell
+|         |                      |                             |
+|         v                      v                             v
+|         |                      |                             |
+|         ------------------------------------------------------
+|                                |
+|                                v
+|                  rwl.release_guarded_request
+|                     |
+|                     ----> 
+|
+|
+|
+|
+--------
+       |
+       v
+       |
+  context::complete 
+     |
+     ---> GuardedRequestFunctionContext::finish 
+            |
+           ---> ReplicatedWriteLog::aio_xxx::lambda_function
+                     |
+                     ---> C_xxx_Request::blockguard_acquired(guarded_ctx)
+                     |
+                     ---> rwl.alloc_and_dispatch_io_req(C_xxx_request)
+
+
+
+
+
+
+*/
+

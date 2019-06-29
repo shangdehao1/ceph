@@ -32,7 +32,8 @@ static const bool LOGMAP_VERBOSE_LOGGING = false;
  */
 /* A WriteLogMapEntry (based on LogMapEntry) refers to a portion of a GeneralWriteLogEntry */
 template <typename T>
-class LogMapEntry {
+class LogMapEntry 
+{
 public:
   BlockExtent block_extent;
   std::shared_ptr<T> log_entry;
@@ -82,33 +83,29 @@ private:
   class LogMapEntryCompare {
   public:
     bool operator()(const LogMapEntryT &lhs,
-		    const LogMapEntryT &rhs) const;
+                    const LogMapEntryT &rhs) const;
   };
-
   using BlockExtentToLogMapEntries = std::set<LogMapEntryT, LogMapEntryCompare>;
 
   LogMapEntry<T> block_extent_to_map_key(const BlockExtent &block_extent);
-
   CephContext *m_cct;
-
   Mutex m_lock;
   BlockExtentToLogMapEntries m_block_to_log_entry_map;
 };
 
+// =================================
+
 template <typename T>
 LogMapEntry<T>::LogMapEntry(const BlockExtent block_extent, std::shared_ptr<T> log_entry)
-  : block_extent(block_extent) , log_entry(log_entry) {
-}
+  : block_extent(block_extent) , log_entry(log_entry) {}
 
 template <typename T>
 LogMapEntry<T>::LogMapEntry(std::shared_ptr<T> log_entry)
-  : block_extent(log_entry->block_extent()) , log_entry(log_entry) {
-}
+  : block_extent(log_entry->block_extent()) , log_entry(log_entry) {}
 
 template <typename T, typename T_S>
 LogMap<T, T_S>::LogMap(CephContext *cct)
-  : m_cct(cct), m_lock("librbd::cache::rwl::LogMap::m_lock") {
-}
+  : m_cct(cct), m_lock("librbd::cache::rwl::LogMap::m_lock") {}
 
 /**
  * Add a write log entry to the map. Subsequent queries for blocks
@@ -120,8 +117,7 @@ LogMap<T, T_S>::LogMap(CephContext *cct)
  * contain this map entry.
  *
  * The map_entries fields of all log entries overlapping with this
- * entry will be updated to remove the regions that overlap with
- * this.
+ * entry will be updated to remove the regions that overlap with this.
  */
 template <typename T, typename T_S>
 void LogMap<T, T_S>::add_log_entry(std::shared_ptr<T> log_entry) {
@@ -141,10 +137,7 @@ void LogMap<T, T_S>::add_log_entries(T_S &log_entries) {
   }
 }
 
-/**
- * Remove any map entries that refer to the supplied write log
- * entry.
- */
+// Remove any map entries that refer to the supplied write log entry.
 template <typename T, typename T_S>
 void LogMap<T, T_S>::remove_log_entry(std::shared_ptr<T> log_entry) {
   if (!log_entry->is_writer()) { return; }
@@ -193,8 +186,10 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries(BlockExtent block_extent) {
 }
 
 template <typename T, typename T_S>
-void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
+void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) 
+{
   LogMapEntry<T> map_entry(log_entry);
+
   if (LOGMAP_VERBOSE_LOGGING) {
     ldout(m_cct, 20) << "block_extent=" << map_entry.block_extent << dendl;
   }
@@ -240,7 +235,8 @@ void LogMap<T, T_S>::add_log_entry_locked(std::shared_ptr<T> log_entry) {
 }
 
 template <typename T, typename T_S>
-void LogMap<T, T_S>::remove_log_entry_locked(std::shared_ptr<T> log_entry) {
+void LogMap<T, T_S>::remove_log_entry_locked(std::shared_ptr<T> log_entry) 
+{
   if (LOGMAP_VERBOSE_LOGGING) {
     ldout(m_cct, 20) << "*log_entry=" << *log_entry << dendl;
   }
@@ -312,7 +308,8 @@ void LogMap<T, T_S>::split_map_entry_locked(LogMapEntry<T> &map_entry, BlockExte
 }
 
 template <typename T, typename T_S>
-T_S LogMap<T, T_S>::find_log_entries_locked(BlockExtent &block_extent) {
+T_S LogMap<T, T_S>::find_log_entries_locked(BlockExtent &block_extent) 
+{
   T_S overlaps;
   if (LOGMAP_VERBOSE_LOGGING) {
     ldout(m_cct, 20) << "block_extent=" << block_extent << dendl;
@@ -326,12 +323,11 @@ T_S LogMap<T, T_S>::find_log_entries_locked(BlockExtent &block_extent) {
   return overlaps;
 }
 
-/**
- * TODO: Generalize this to do some arbitrary thing to each map
- * extent, instead of returning a list.
- */
+/* TODO: Generalize this to do some arbitrary thing to each map
+ * extent, instead of returning a list.*/
 template <typename T, typename T_S>
-LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_extent) {
+LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_extent) 
+{
   LogMapEntries<T> overlaps;
 
   if (LOGMAP_VERBOSE_LOGGING) {
@@ -372,8 +368,7 @@ LogMapEntries<T> LogMap<T, T_S>::find_map_entries_locked(BlockExtent &block_exte
  * first entry in which the extent doesn't end before the given extent
  * starts, and the last entry for which the extent starts before the given
  * extent ends (the first entry that the key is less than, and the last entry
- * that is less than the key).
- */
+ * that is less than the key).*/
 template <typename T, typename T_S>
 bool LogMap<T, T_S>::LogMapEntryCompare::operator()(const LogMapEntry<T> &lhs, const LogMapEntry<T> &rhs) const {
   if (lhs.block_extent.block_end < rhs.block_extent.block_start) {

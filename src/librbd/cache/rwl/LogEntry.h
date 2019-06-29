@@ -195,6 +195,9 @@ public:
 
 class WriteLogEntry : public GeneralWriteLogEntry
 {
+public:
+  uint8_t *pmem_buffer = nullptr; // ## AEP's pointer
+
 protected:
   buffer::ptr pmem_bp;  // its built-in space is in AEP....sdh
   buffer::list pmem_bl; // its built-in space is in AEP....sdh
@@ -226,7 +229,6 @@ protected:
   }
 
 public:
-  uint8_t *pmem_buffer = nullptr; // ## AEP's pointer
 
   WriteLogEntry(std::shared_ptr<SyncPointLogEntry> sync_point_entry,
                 const uint64_t image_offset_bytes, const uint64_t write_bytes)
