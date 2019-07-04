@@ -93,7 +93,6 @@ public:
   const std::shared_ptr<SyncPointLogEntry> get_sync_point_log_entry() { return sync_point->log_entry; }
   bool is_sync_point() { return true; }
 
-  /* execute all contexts derived from sync_point->m_on_sync_appending */
   void appending() 
   {
     std::vector<Context*> appending_contexts;
@@ -113,7 +112,6 @@ public:
     }
   }
 
-  /* execute all contexts derived from sync_point->m_on_sync_persist */
   void complete(int result)
   {
     std::vector<Context*> persisted_contexts;
@@ -123,7 +121,6 @@ public:
       Mutex::Locker locker(rwl.m_lock);
       ceph_assert(sync_point->later_sync_point);
       ceph_assert(sync_point->later_sync_point->earlier_sync_point == sync_point);
-  
       sync_point->later_sync_point->earlier_sync_point = nullptr;
     }
   

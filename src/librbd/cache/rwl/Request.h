@@ -1251,7 +1251,12 @@ bool C_WriteRequest<T>::alloc_resources()
 
 /*********************************************************************************
  *
- *
+ *  context    enabled_shared_from_this<SharedPtrContext>
+ *     |           |
+ *     v           v
+ *    SharedPtrContext
+ *          |
+ *          v
  * C_GuardedBlockIORequest
  *   |
  *   ---> C_ReadRequest

@@ -18,7 +18,6 @@ public:
     m_prior_log_entries_persisted = new C_Gather(rwl.m_image_ctx.cct, nullptr);
     m_sync_point_persist = new C_Gather(rwl.m_image_ctx.cct, nullptr);
 
-    /* When set MAX_WRITES_PER_SYNC_POINT, what's factor need to be considered ? */
     m_on_sync_point_appending.reserve(MAX_WRITES_PER_SYNC_POINT + 2);
     m_on_sync_point_persisted.reserve(MAX_WRITES_PER_SYNC_POINT + 2);
   }
@@ -60,7 +59,7 @@ public:
 
  /* The finisher for this will append the sync point to the log.
   * The finisher for m_prior_log_entries_persisted will be a sub-op of this. */
-  C_Gather *m_sync_point_persist;
+  C_Gather* m_sync_point_persist;
 
   bool m_append_scheduled = false;
   bool m_appending = false;

@@ -12,8 +12,8 @@ struct WriteBufferAllocation
 
   pobj_action buffer_alloc_action;
 
-  //  alloc    : C_WriteRequest::alloc_resource ##
-  //  transfer : C_WriteRequest::dispatch ##
+  //  alloc    : C_WriteRequest::alloc_resource 
+  //  transfer : C_WriteRequest::dispatch 
   TOID(uint8_t) buffer_oid = OID_NULL;
 
   bool allocated = false;

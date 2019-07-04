@@ -48,12 +48,12 @@ struct WriteLogPmemEntry
   bool is_discard() { return discard; }
   bool is_writesame() { return writesame; }
 
-  /* Log entry is a basic write */
+  // Log entry is a basic write.
   bool is_write() {
     return !is_sync_point() && !is_discard() && !is_writesame();
   }
 
-  /* Log entry is any type that writes data */
+  // Log entry is any type that writes data 
   bool is_writer() {
     return is_write() || is_discard() || is_writesame();
   }

@@ -128,7 +128,6 @@ enum {
   l_librbd_rwl_last,
 };
 
-
 namespace librbd {
 
 struct ImageCtx;
@@ -215,7 +214,6 @@ class WriteSameLogOperation;
 template <typename T>
 class SyncPointLogOperation;
 
-
 template <typename T>
 using GenericLogOperationSharedPtr = std::shared_ptr<GenericLogOperation<T>>;
 
@@ -235,6 +233,7 @@ template <typename T>
 using WriteSameLogOperationSharedPtr = std::shared_ptr<WriteSameLogOperation<T>>;
 
 // =================
+
 struct GuardedRequest;
 
 typedef librbd::BlockGuard<GuardedRequest> WriteLogGuard;
@@ -247,35 +246,10 @@ struct C_GuardedBlockIORequest;
 
 class DeferredContexts;
 
-
-/*
-template <typename T>
-struct C_BlockIORequest;
-
-template <typename T>
-struct C_WriteRequest;
-
-template <typename T>
-struct C_FlushRequest;
-
-template <typename T>
-struct C_DiscardRequest;
-
-template <typename T>
-struct C_WriteSameRequest;
-
-template <typename T>
-struct C_CompAndWriteRequest;
-
-// Prototype pmem-based, client-side, replicated write log
-class ReplicatedWriteLogInternal;
-*/
-
-
-
-
 } // namespace rwl
+
 } // namespace cache
+
 } // namespace librbd
 
 
@@ -307,10 +281,6 @@ class ReplicatedWriteLogInternal;
 
 } // cache
 } // librbd
-
-
-
-
 
 
 

@@ -1,14 +1,6 @@
 
 
 
-ImageStore
-    |
-MetaStore
-    |
-AioFile<ImageCtx>
-
-
-
 
 JounalStore
     |
@@ -23,32 +15,6 @@ AioFile
 ImageCache --> ImageWriteBack       
            --> FileImageCache    
            --> ReplicatedWriteLog
-
-
-=========================================
-
-ImageCache
-    |
-ImageWriteBack
-  |
-  --> FileImageCache
-        |
-        --> ReplicatedWriteLOg
-              |
-              --> FileImageCache 
-                    |  
-                    --> BlockGuard m_block_guard 
-                    --> namespace::file
-                         |
-                         --> Policy --> StupidPolicy
-                         --> MetaStore 
-                         --> JournalStore
-                         --> ImageStore 
-                               |
-                               --> AioFile (own)           --> namely, m_metastore
-                               --> MetaStore (last layer)  --> namely, m_cache_file
-                 
-
 
 
 

@@ -192,7 +192,6 @@ private:
   WriteLogGuard::BlockOperations m_awaiting_barrier;
   bool m_barrier_in_progress = false;
   BlockGuardCell *m_barrier_cell = nullptr;
-  // 
   BlockGuardCell* detain_guarded_request_helper(GuardedRequest &req);
   BlockGuardCell* detain_guarded_request_barrier_helper(GuardedRequest &req);
   void detain_guarded_request(GuardedRequest &&req);
@@ -219,15 +218,9 @@ private:
 
   // increase : schedule_append
   // decrease : append_scheduled_ops
-  GenericLogOperationsT m_ops_to_append; /* Write ops needing event append in local log */
-
-  /* map block extent to log entry */
-  WriteLogMap m_blocks_to_log_entries;  // reading existing entries from pmem....sdh
-
-  /* New entries are at the back. Oldest at the front */
-  GenericLogEntries m_log_entries; // this structure maintain in-memory log entry with the same AEP.
-
-  // This entry is only dirty if its sync gen number is > the flushed sync gen number from the root object. 
+  GenericLogOperationsT m_ops_to_append;
+  WriteLogMap m_blocks_to_log_entries;
+  GenericLogEntries m_log_entries;
   GenericLogEntries m_dirty_log_entries;
 
   // the following three item : construct_flush_entry_context
