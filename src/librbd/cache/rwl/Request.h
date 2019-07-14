@@ -10,9 +10,7 @@ namespace cache {
 
 namespace rwl {
 
-/**
- * A request that can be deferred in a BlockGuard to sequence overlapping operations.
- */
+/* A request that can be deferred in a BlockGuard to sequence overlapping operations. */
 template <typename T>
 struct C_GuardedBlockIORequest : public SharedPtrContext
 {
@@ -36,7 +34,6 @@ public:
 
   virtual const char *get_name() const = 0;
 
-  /// blockguard_acquired
   void set_cell(BlockGuardCell *cell) {
     ceph_assert(cell);
     ceph_assert(!m_cell);
@@ -52,12 +49,9 @@ public:
     ceph_assert(m_cell);
     bool initial = false;
 
-    if (m_cell_released.compare_exchange_strong(initial, true))
-    {
-      rwl.release_guarded_request(m_cell); // ##
-    }
-    else
-    {
+    if (m_cell_released.compare_exchange_strong(initial, true)) {
+      rwl.release_guarded_request(m_cell); 
+    } else {
       ldout(rwl.m_image_ctx.cct, 5) << "cell " << m_cell << " already released for " << this << dendl;
     }
   }
@@ -75,7 +69,7 @@ struct C_ReadRequest : public Context
   ImageExtentBufs m_read_extents;
 
   bufferlist m_miss_bl;
-  bufferlist *m_out_bl;
+  bufferlist* m_out_bl;
 
   utime_t m_arrived_time;
   PerfCounters *m_perfcounter;
@@ -83,8 +77,7 @@ struct C_ReadRequest : public Context
   C_ReadRequest(CephContext *cct, utime_t arrived,
                 PerfCounters *perfcounter, bufferlist *out_bl,
                 Context *on_finish)
-    : m_cct(cct),
-      m_on_finish(on_finish),
+    : m_cct(cct), m_on_finish(on_finish),
       m_out_bl(out_bl), m_arrived_time(arrived),
       m_perfcounter(perfcounter)
   {}
@@ -174,7 +167,6 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
 
   bufferlist bl;     /* User data derived from aio_write interface */
   Context* user_req; /* User callback derived from aio_write interface */
-
 
   // guarantee user callback just be called one time.
   std::atomic<bool> m_user_req_completed = {false};
@@ -416,7 +408,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
     {
       // nice code, avoid copy costs.
       m_resources.buffers.emplace_back();
-      struct WriteBufferAllocation &buffer = m_resources.buffers.back();
+      struct WriteBufferAllocation& buffer = m_resources.buffers.back();
 
       buffer.allocation_size = MIN_WRITE_ALLOC_SIZE;
       buffer.allocated = false;
@@ -430,10 +422,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
     bytes_dirtied = bytes_cached;
   }
 
-  void deferred_handler() override
-  {
-    // TODO
-  }
+  void deferred_handler() override {}
 
   void dispatch() override;
 
@@ -449,8 +438,8 @@ struct C_WriteRequest : public C_BlockIORequest<T>
     }
   }
 
-  virtual void schedule_append()
-  {
+  virtual void schedule_append() {
+
     ldout(rwl.m_image_ctx.cct, 20) << dendl;
     ceph_assert(++m_appended == 1);
 
@@ -470,11 +459,9 @@ struct C_WriteRequest : public C_BlockIORequest<T>
     }
   }
 
-  const char *get_name() const override
-  {
+  const char *get_name() const override {
     return "C_WriteRequest";
   }
-
 };
 
 /*****
@@ -540,17 +527,14 @@ struct C_FlushRequest : public C_BlockIORequest<T>
   
     Mutex::Locker locker(rwl.m_lock);
   
-    if (rwl.m_free_log_entries)
-    {
+    if (rwl.m_free_log_entries) {
       rwl.m_free_log_entries--;
-  
       m_log_entry_allocated = true;
       allocated_here = true;
     }
   
     return allocated_here;
   }
-
 
   void deferred_handler() override {
     rwl.m_perfcounter->inc(l_librbd_rwl_aio_flush_def, 1);
@@ -619,9 +603,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
     return shared_from(this);
   }
 
-  void finish_req(int r) {
-    // TODO
-  }
+  void finish_req(int r) {}
 
   bool alloc_resources() override
   {
@@ -647,10 +629,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
     return allocated_here;
   }
 
-
-  void deferred_handler() override {
-    // TODO
-  }
+  void deferred_handler() override {}
 
   void dispatch() override
   {
@@ -664,7 +643,6 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
   
     rwl.schedule_append(op);
   }
-
 
   const char *get_name() const override {
     return "C_DiscardRequest";
@@ -681,6 +659,7 @@ template <typename T>
 struct C_CompAndWriteRequest : public C_WriteRequest<T>
 {
   using C_BlockIORequest<T>::rwl;
+
   bool m_compare_succeeded = false;
   uint64_t *m_mismatch_offset;
   bufferlist m_cmp_bl;
@@ -759,6 +738,7 @@ template <typename T>
 struct C_WriteSameRequest : public C_WriteRequest<T>
 {
   using C_BlockIORequest<T>::rwl;
+
   friend std::ostream &operator<<(std::ostream &os, const C_WriteSameRequest<T> &req) {
     os << (C_WriteRequest<T>&)req;
     return os;
@@ -779,8 +759,7 @@ struct C_WriteSameRequest : public C_WriteRequest<T>
   }
 
   template <typename... U>
-  static inline std::shared_ptr<C_WriteSameRequest<T>> create(U&&... arg)
-  {
+  static inline std::shared_ptr<C_WriteSameRequest<T>> create(U&&... arg) {
     return SharedPtrContext::create<C_WriteSameRequest<T>>(std::forward<U>(arg)...);
   }
 
@@ -1008,8 +987,7 @@ void C_WriteRequest<T>::dispatch()
    * The block guard for this write_req will not be released until the write is persisted
    * everywhere, but the caller's request can complete now.
    */
-  if (rwl.m_persist_on_flush_early_user_comp && m_op_set->m_persist_on_flush)
-  {
+  if (rwl.m_persist_on_flush_early_user_comp && m_op_set->m_persist_on_flush) {
     this->complete_user_request(0);
   }
 
@@ -1068,8 +1046,7 @@ void C_WriteRequest<T>::dispatch()
     }
   }
 
-  if (!append_deferred)
-  {
+  if (!append_deferred) {
     ldout(cct, 20) << "    - earlier sync point have been persisted, directly schedule current write append." << dendl;
     this->schedule_append();
   } else {
@@ -1111,7 +1088,7 @@ bool C_WriteRequest<T>::alloc_resources()
   {
     Mutex::Locker locker(rwl.m_lock);
 
-    /* This isn't considered a "no space" alloc fail. Lanes are a throttling mechanism. */
+    /* This isn't considered a "no space" alloc fail. Lanes are a throttling mechanism.*/
     if (rwl.m_free_lanes < this->m_image_extents.size())
     {
       this->m_waited_lanes = true;
@@ -1124,8 +1101,7 @@ bool C_WriteRequest<T>::alloc_resources()
     {
       this->m_waited_entries = true; // ##
       alloc_succeeds = false;
-
-      no_space = true; /* Entries must be retired */
+      no_space = true; // Entries must be retired 
 
       ldout(cct, 20) << "check alloc log entries -- fails" << dendl;
     }
@@ -1137,8 +1113,7 @@ bool C_WriteRequest<T>::alloc_resources()
         this->m_waited_buffers = true;
       }
       alloc_succeeds = false;
-
-      no_space = true; /* Entries must be retired */
+      no_space = true; // Entries must be retired 
 
       ldout(cct, 20) << "check alloc payload pmem buffer -- fails" << dendl;
     }
@@ -1146,8 +1121,7 @@ bool C_WriteRequest<T>::alloc_resources()
 
   /* concurrently setup resource buffer, then apply for AEP space */
 
-  if (alloc_succeeds)
-  {
+  if (alloc_succeeds) {
     setup_buffer_resources(bytes_cached, bytes_dirtied);
   }
 
@@ -1241,7 +1215,6 @@ bool C_WriteRequest<T>::alloc_resources()
   this->m_allocated_time = alloc_start;
   return alloc_succeeds;
 }
-
 
 } // namespace cache
 } // namespace librbd

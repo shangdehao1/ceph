@@ -24,10 +24,9 @@ static const bool LOGMAP_VERBOSE_LOGGING = false;
 #undef dout_prefix
 #define dout_prefix *_dout << "librbd::cache::rwl::LogMap: " << this << " " \
 			   <<  __func__ << ": "
-/**
- * WriteLogMap: maps block extents to GeneralWriteLogEntries
- */
-/* A WriteLogMapEntry (based on LogMapEntry) refers to a portion of a GeneralWriteLogEntry */
+
+/* WriteLogMap: maps block extents to GeneralWriteLogEntries
+ * A WriteLogMapEntry (based on LogMapEntry) refers to a portion of a GeneralWriteLogEntry */
 template <typename T>
 class LogMapEntry 
 {

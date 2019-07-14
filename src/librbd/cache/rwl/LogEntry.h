@@ -28,7 +28,6 @@ public:
   WriteLogPmemEntry *pmem_entry = nullptr; // pointer of log entry of AEP
 
   // load_existing_entries / alloc_op_log_entries
-  // derive from m_first_free_entry
   uint32_t log_entry_index = 0;
 
   // complete_op_log_entries / load_existing_entries
@@ -44,7 +43,6 @@ public:
 
   virtual unsigned int write_bytes() = 0;
 
-  // check log entry type
   bool is_sync_point() { return ram_entry.is_sync_point(); }
   bool is_discard() { return ram_entry.is_discard(); }
   bool is_writesame() { return ram_entry.is_writesame(); }
@@ -59,15 +57,13 @@ public:
   virtual const WriteSameLogEntry* get_write_same_log_entry() { return nullptr; }
   virtual const DiscardLogEntry* get_discard_log_entry() { return nullptr; }
 
-  virtual std::ostream &format(std::ostream &os) const
-  {
+  virtual std::ostream &format(std::ostream &os) const {
     os << "ram_entry=[" << ram_entry << "], " << "pmem_entry=" << (void*)pmem_entry << ", "
        << "log_entry_index=" << log_entry_index << ", " << "completed=" << completed;
     return os;
   };
 
-  friend std::ostream &operator<<(std::ostream &os, const GenericLogEntry &entry)
-  {
+  friend std::ostream &operator<<(std::ostream &os, const GenericLogEntry &entry) {
     return entry.format(os);
   }
 };

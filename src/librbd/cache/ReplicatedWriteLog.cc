@@ -38,9 +38,9 @@ public:
 
 template <typename I>
 ReplicatedWriteLog<I>::ReplicatedWriteLog(ImageCtx &image_ctx, ImageCache<I> *lower)
-  : m_internal(new ReplicatedWriteLogInternal),
+  : m_image_ctx(image_ctx),
+    m_internal(new ReplicatedWriteLogInternal),
     rwl_pool_layout_name(POBJ_LAYOUT_NAME(rbd_rwl)),
-    m_image_ctx(image_ctx),
     m_log_pool_config_size(DEFAULT_POOL_SIZE),
     m_image_writeback(lower), 
     m_write_log_guard(image_ctx.cct),
@@ -210,7 +210,6 @@ void ReplicatedWriteLog<I>::rwl_init(Context *on_finish, DeferredContexts &later
     if (num_small_writes > MAX_LOG_ENTRIES) {
       num_small_writes = MAX_LOG_ENTRIES;
     }
-
     ceph_assert(num_small_writes > 2);
 
     m_log_pool_actual_size = m_log_pool_config_size;
@@ -501,11 +500,8 @@ void ReplicatedWriteLog<I>::load_existing_entries(DeferredContexts &later)
   ceph_assert(missing_sync_points.size() == 1 || missing_sync_points.size() == 0); // dehao
 
   /* Create missing sync points. 
-   *
    * These must not be appended until the entry reload is complete and the write map is up to date.
-   *
    * Currently this is handled by the deferred contexts object passed to new_sync_point(). 
-   *
    * These contexts won't be completed until this function returns.*/
   for (auto &kv : missing_sync_points) 
   {
@@ -516,8 +512,9 @@ void ReplicatedWriteLog<I>::load_existing_entries(DeferredContexts &later)
     if (0 == m_current_sync_gen) {
       m_current_sync_gen = kv.first - 1;
     }
-    ceph_assert(kv.first == m_current_sync_gen + 1);
 
+    ceph_assert(kv.first == m_current_sync_gen + 1);
+    ceph_assert(m_current_sync_point == nullptr);
     init_flush_new_sync_point(later);
     ceph_assert(kv.first == m_current_sync_gen);
 
@@ -534,7 +531,7 @@ void ReplicatedWriteLog<I>::load_existing_entries(DeferredContexts &later)
    * Add writes to the write log map. */
   std::shared_ptr<SyncPointLogEntry> previous_sync_point_entry = nullptr;
 
-  for (auto &log_entry : m_log_entries)  
+  for (auto& log_entry : m_log_entries)  
   {
     if (log_entry->ram_entry.is_writer()) 
     {
@@ -841,7 +838,7 @@ void ReplicatedWriteLog<I>::shut_down(Context *on_finish)
 
     ldout(m_image_ctx.cct, 20) << "waiting for in flight operations" << dendl;
 
-    // Wait for in progress IOs to complete
+    // wait for in progress IOs to complete
     Mutex::Locker locker(m_lock);
     m_async_op_tracker.wait(m_image_ctx, next_ctx);
   });
@@ -886,7 +883,6 @@ void ReplicatedWriteLog<I>::flush(Context *on_finish)
 template <typename I>
 void ReplicatedWriteLog<I>::invalidate(Context *on_finish, bool discard_unflushed_writes) 
 {
-  // barrier
   flush(on_finish, true, discard_unflushed_writes);
 };
 
@@ -1074,7 +1070,7 @@ void ReplicatedWriteLog<I>::aio_flush(Context *on_finish)
   ldout(cct, 20) << dendl;
 
   /* May be called even if initialization fails */
-  /* Aio_flush completes when all previously completed writes are flushed to persistent cache. */
+  /* aio_flush completes when all previously completed writes are flushed to persistent cache. */
   /* This flush operation will not wait for writes deferred for overlap in the block guard.*/
 
   // Deadlock if completed here 
@@ -1102,7 +1098,8 @@ void ReplicatedWriteLog<I>::aio_flush(Context *on_finish)
 
       flush_req->m_detained = guard_ctx.m_state.detained;
 
-      // We don't call flush_req->set_cell(), because the block guard will be released here 
+      /* We don't call flush_req->set_cell(), because the block guard will be released here */
+
       if (flush_req->m_detained) {}
 
       {
@@ -1152,23 +1149,19 @@ void ReplicatedWriteLog<I>::aio_write(Extents &&image_extents, bufferlist&& bl, 
     }
   }
 
-  // check bytes
   if (ExtentsSummary<Extents>(image_extents).total_bytes == 0) {
     on_finish->complete(0);
     return;
   }
 
-  // create write request
   auto *write_req =
     C_WriteRequestT::create(*this, now, std::move(image_extents), std::move(bl), fadvise_flags, on_finish).get();
 
   m_perfcounter->inc(l_librbd_rwl_wr_bytes, write_req->m_image_extents_summary.total_bytes);
 
-  /* The lambda below will be called when the block guard for all blocks affected by this write is obtained */
   GuardedRequestFunctionContext *guarded_ctx =
     new GuardedRequestFunctionContext([this, write_req, cct](GuardedRequestFunctionContext &guard_ctx) {
       ldout(cct, 20) << dendl;
-      // move block_guard_cell from guarded_ctx to write_equest, and record some information...
       write_req->blockguard_acquired(guard_ctx);
       alloc_and_dispatch_io_req(write_req);
     });
@@ -1203,7 +1196,7 @@ void ReplicatedWriteLog<I>::aio_discard(uint64_t offset, uint64_t length, bool s
 
   auto discard_req_sp =
     C_DiscardRequestT::create(*this, now, std::move(discard_extents), skip_partial_discard, on_finish);
-  auto *discard_req = discard_req_sp.get();
+  auto* discard_req = discard_req_sp.get();
 
   // TODO: Add discard stats
   {
@@ -1226,13 +1219,9 @@ void ReplicatedWriteLog<I>::aio_discard(uint64_t offset, uint64_t length, bool s
 
       discard_req_sp->complete_user_request(r);
 
-      /* Completed to caller by here */
-      // TODO: add discard timing stats
       discard_req_sp->release_cell();
   });
 
-  /* The lambda below will be called when the block guard for all
-   * blocks affected by this write is obtained */
   GuardedRequestFunctionContext *guarded_ctx =
     new GuardedRequestFunctionContext([this, discard_req](GuardedRequestFunctionContext &guard_ctx) 
   {
@@ -1271,7 +1260,6 @@ void ReplicatedWriteLog<I>::aio_writesame(uint64_t offset, uint64_t length, buff
     }
   }
 
-  /* Zero length write or pattern */
   if ((0 == length) || bl.length() == 0) {
     on_finish->complete(0);
     return;
@@ -1308,7 +1296,7 @@ void ReplicatedWriteLog<I>::aio_writesame(uint64_t offset, uint64_t length, buff
     new GuardedRequestFunctionContext([this, ws_req](GuardedRequestFunctionContext &guard_ctx) {
       ws_req->blockguard_acquired(guard_ctx);
       alloc_and_dispatch_io_req(ws_req);
-    });
+   });
 
   detain_guarded_request(GuardedRequest(ws_req->m_image_extents_summary.block_extent(), guarded_ctx));
 }
@@ -1433,7 +1421,7 @@ BlockGuardCell* ReplicatedWriteLog<I>::detain_guarded_request_barrier_helper(Gua
   CephContext *cct = m_image_ctx.cct;
   ldout(cct, 20) << dendl;
 
-  BlockGuardCell *cell = nullptr;
+  BlockGuardCell* cell = nullptr;
 
   ceph_assert(m_blockguard_lock.is_locked_by_me());
 
@@ -1474,7 +1462,7 @@ void ReplicatedWriteLog<I>::detain_guarded_request(GuardedRequest &&req)
 
   if (cell) {
     req.guard_ctx->m_cell = cell;
-    req.guard_ctx->complete(0);
+    req.guard_ctx->complete(0); // lambda function...
   }
 }
 
@@ -1830,7 +1818,6 @@ void ReplicatedWriteLog<I>::alloc_op_log_entries(GenericLogOperationsT &ops)
 
   ceph_assert(m_log_append_lock.is_locked_by_me());
 
-  /* Allocate the (already reserved) log entries */
   Mutex::Locker locker(m_lock);
     
   for (auto &operation : ops) 
@@ -1849,7 +1836,7 @@ void ReplicatedWriteLog<I>::alloc_op_log_entries(GenericLogOperationsT &ops)
 
     log_entry->ram_entry.entry_valid = 1;
 
-    m_log_entries.push_back(log_entry);
+    m_log_entries.push_back(log_entry); // ##
   }
 }
 
@@ -2064,23 +2051,20 @@ void ReplicatedWriteLog<I>::dispatch_deferred_writes(void)
   ldout(cct, 20) << dendl;
 
   /* req still on front of deferred list */
-  C_BlockIORequestT *front_req = nullptr;
+  C_BlockIORequestT* front_req = nullptr;
 
   /* req that was allocated, and is now off the list */
-  C_BlockIORequestT *allocated_req = nullptr;
+  C_BlockIORequestT* allocated_req = nullptr;
 
   /* front_req allocate succeeded */
   bool allocated = false;
 
   bool cleared_dispatching_flag = false;
 
-  /* If we can't become the dispatcher, we'll exit */
+  /* if we can't become the dispatcher, we'll exit */
   {
     Mutex::Locker locker(m_lock);
     if (m_dispatching_deferred_ops || !m_deferred_ios.size()) {
-      ldout(cct, 20) << "dispatch_deferred_writes startup fails due to below reason : " << dendl;
-      ldout(cct, 20) << "    - rwl.m_dispatching_deferred_ops : " << m_dispatching_deferred_ops << dendl;
-      ldout(cct, 20) << "    - rwl.m_deferred_ios size : " << m_deferred_ios.size() << dendl;
       return;
     }
     m_dispatching_deferred_ops = true;
@@ -2112,21 +2096,20 @@ void ReplicatedWriteLog<I>::dispatch_deferred_writes(void)
 
 	if (!allocated && front_req) 
         {
-	  /* front_req->alloc_resources() failed on the last iteration. We'll stop dispatching. */
-	  front_req = nullptr;
-	  assert(!cleared_dispatching_flag);
-	  m_dispatching_deferred_ops = false;
-	  cleared_dispatching_flag = true;
-	} 
+          /* front_req->alloc_resources() failed on the last iteration. we'll stop dispatching. */
+          front_req = nullptr;
+          ceph_assert(!cleared_dispatching_flag);
+          m_dispatching_deferred_ops = false;
+          cleared_dispatching_flag = true;
+        } 
         else 
         {
           ceph_assert(!front_req);
 
           if (m_deferred_ios.size()) {
-            /* New allocation candidate */
             front_req = m_deferred_ios.front(); // ### 
-	  } else {
-            assert(!cleared_dispatching_flag);
+          } else {
+            ceph_assert(!cleared_dispatching_flag);
             m_dispatching_deferred_ops = false;
             cleared_dispatching_flag = true;
           }
@@ -2169,6 +2152,7 @@ template <typename I>
 void ReplicatedWriteLog<I>::release_write_lanes(C_WriteRequestT *write_req)
 {
   /* Returns the lanes used by this write, and attempts to dispatch the next deferred write */
+
   CephContext *cct = m_image_ctx.cct;
   ldout(cct, 20) << dendl;
 
@@ -2196,6 +2180,7 @@ void ReplicatedWriteLog<I>::alloc_and_dispatch_io_req(C_BlockIORequestT *req)
       dispatch_here = m_deferred_ios.empty();
     }
 
+    // order ensure : once any request have been blocked, later all request will be blocked.
     if (dispatch_here) {
       dispatch_here = req->alloc_resources();
     }
@@ -2467,10 +2452,10 @@ void ReplicatedWriteLog<I>::wake_up()
     return;
   }
 
-  // Wake-up can be requested while it's already scheduled 
+  // wake-up can be requested while it's already scheduled 
   m_wake_up_requested = true;
 
-  // Wake-up cannot be scheduled if it's already scheduled 
+  // wake-up cannot be scheduled if it's already scheduled 
   if (m_wake_up_scheduled) {
     ceph_assert(m_wake_up_requested && m_wake_up_scheduled);
     return;
@@ -2532,7 +2517,7 @@ void ReplicatedWriteLog<I>::process_work()
       int retired = 0;
       utime_t started = ceph_clock_now();
 
-      // Onece in retiring status, check how to lanuch next-round retire...sdh
+      // once in retiring status, check how to lanuch next-round retire...sdh
       while (m_alloc_failed_since_retire || m_shutting_down || m_invalidating ||
             (m_bytes_allocated > high_water_bytes) ||
             ((m_bytes_allocated > low_water_bytes) &&
@@ -2905,7 +2890,7 @@ bool ReplicatedWriteLog<I>::can_flush_entry(std::shared_ptr<GenericLogEntry> log
   if (m_flush_ops_in_flight && 
      (log_entry->ram_entry.sync_gen_number > m_lowest_flushing_sync_gen)) 
   {
-    ldout(cct, 20) <<"current entry can't be flushed as below reason : " <<dendl;
+    ldout(cct, 20) <<"current entry can't be flushed as below reason : " << dendl;
     ldout(cct, 20) <<" - m_flush_ops_in_flight : " << m_flush_ops_in_flight << dendl;
     ldout(cct, 20) <<" - current_entry_sync_gen > m_lowest_flushing_sync_gen : " << log_entry->ram_entry.sync_gen_number << " > " << m_lowest_flushing_sync_gen << dendl;
     return false;
@@ -3389,7 +3374,7 @@ C_FlushRequest<ReplicatedWriteLog<I>>* ReplicatedWriteLog<I>::make_flush_req(Con
   return flush_req;
 }
 
-/* Make a new sync point and flush the previous during initialization, when there may or may
+/* make a new sync point and flush the previous during initialization, when there may or may
  * not be a previous sync point */
 template <typename I>
 void ReplicatedWriteLog<I>::init_flush_new_sync_point(DeferredContexts &later) 
@@ -3410,7 +3395,6 @@ void ReplicatedWriteLog<I>::init_flush_new_sync_point(DeferredContexts &later)
     flush_new_sync_point(nullptr, later);
   }
 }
-
 
 template <typename I>
 void ReplicatedWriteLog<I>::flush_new_sync_point_if_needed(C_FlushRequestT *flush_req, 
@@ -3472,16 +3456,11 @@ void ReplicatedWriteLog<I>::flush_new_sync_point(C_FlushRequestT *flush_req,
     flush_req->m_internal = true;
   }
 
-  /* create a new sync point. */
   new_sync_point(later);
 
   std::shared_ptr<SyncPointT> to_append = m_current_sync_point->earlier_sync_point;
-
   ceph_assert(to_append);
-
-  /* This flush request will append/persist the (now) previous sync point */
   flush_req->to_append = to_append;
-
   to_append->m_append_scheduled = true;
 
   /* All prior sync points that are still in this list must already be scheduled for append */
@@ -3495,14 +3474,9 @@ void ReplicatedWriteLog<I>::flush_new_sync_point(C_FlushRequestT *flush_req,
   ceph_assert(temp == 0); // sdh
 
  /* Defer current C_FlushRequest executing.
-  *
   * When the m_sync_point_persist Gather completes, this sync point can be appended.  
-  *
   * The only sub for this Gather is the finisher Context for m_prior_log_entries_persisted, 
-  * which records the result of the Gather in the sync point, and completes. 
-  *
-  * TODO: Do we still need both of these Gathers ?
-  */
+  * which records the result of the Gather in the sync point, and completes. */
   to_append->m_sync_point_persist->set_finisher(new FunctionContext([this, flush_req](int r) {
      alloc_and_dispatch_io_req(flush_req);
    }));
@@ -3519,7 +3493,6 @@ void ReplicatedWriteLog<I>::flush_new_sync_point(C_FlushRequestT *flush_req,
   to_append->m_on_sync_point_persisted.push_back(flush_req);
 }
 
-// Begin a new sync point 
 template <typename I>
 void ReplicatedWriteLog<I>::new_sync_point(DeferredContexts &later) 
 {
@@ -3537,8 +3510,6 @@ void ReplicatedWriteLog<I>::new_sync_point(DeferredContexts &later)
    * On the first call for a re-opened log m_current_sync_gen will be the highest
    * gen number from all the sync point entries found in the re-opened
    * log, and this advances to the next sync gen number. */
-
-  // it's the only change for rwl to modify m_current_sync_gen...sdh
   ++m_current_sync_gen;
 
   new_sync_point = std::make_shared<SyncPointT>(*this, m_current_sync_gen);
@@ -3552,11 +3523,9 @@ void ReplicatedWriteLog<I>::new_sync_point(DeferredContexts &later)
    * create relationship between new sync point and old sync point. */
   if (old_sync_point) 
   {
-    // link sync point between new and old
     new_sync_point->earlier_sync_point = old_sync_point;
     old_sync_point->later_sync_point = new_sync_point;
 
-    // link log entry between new and old.
     old_sync_point->log_entry->m_next_sync_point_entry = new_sync_point->log_entry;
 
     old_sync_point->m_final_op_sequence_num = m_last_op_sequence_num;
@@ -3567,7 +3536,7 @@ void ReplicatedWriteLog<I>::new_sync_point(DeferredContexts &later)
     /* if old sync point is in appending status, express that log position have been guaranteed 
      * so, don't need to add stub to old sync point....sdh */
     if (!old_sync_point->m_appending) {
-      ldout(cct, 20) << "Because pervious sync point still isn't in appending, defer current sync point." << dendl;
+      ldout(cct, 20) << "because pervious sync point still isn't in appending, defer current sync point." << dendl;
       old_sync_point->m_on_sync_point_appending.push_back(
         new_sync_point->m_prior_log_entries_persisted->new_sub());
     }

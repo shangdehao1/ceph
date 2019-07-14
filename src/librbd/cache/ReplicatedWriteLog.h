@@ -33,6 +33,7 @@ public:
 
   using This = ReplicatedWriteLog<ImageCtxT>;
   using SyncPointT = rwl::SyncPoint<This>;
+
   using GenericLogOperationT = rwl::GenericLogOperation<This>;
   using GenericLogOperationSharedPtrT = rwl::GenericLogOperationSharedPtr<This>;
   using WriteLogOperationT = rwl::WriteLogOperation<This>;
@@ -42,6 +43,7 @@ public:
   using DiscardLogOperationT = rwl::DiscardLogOperation<This>;
   using GenericLogOperationsT = rwl::GenericLogOperations<This>;
   using GenericLogOperationsVectorT = rwl::GenericLogOperationsVector<This>;
+
   using C_BlockIORequestT = C_BlockIORequest<This>;
   using C_WriteRequestT = C_WriteRequest<This>;
   using C_FlushRequestT = C_FlushRequest<This>;
@@ -55,7 +57,6 @@ public:
   ReplicatedWriteLog(const ReplicatedWriteLog&) = delete;
   ReplicatedWriteLog &operator=(const ReplicatedWriteLog&) = delete;
 
-  // client AIO methods
   void aio_read(Extents&& image_extents, ceph::bufferlist *bl, int fadvise_flags, Context *on_finish) override;
   void aio_write(Extents&& image_extents, ceph::bufferlist&& bl, int fadvise_flags, Context *on_finish) override;
   void aio_discard(uint64_t offset, uint64_t length, bool skip_partial_discard, Context *on_finish);
@@ -64,7 +65,6 @@ public:
   void aio_compare_and_write(Extents&& image_extents, ceph::bufferlist&& cmp_bl, ceph::bufferlist&& bl,
                              uint64_t *mismatch_offset,int fadvise_flags, Context *on_finish) override;
 
-  // internal state methods
   void init(Context *on_finish) override;
   void shut_down(Context *on_finish) override;
   void get_state(bool &clean, bool &empty, bool &present) override;
@@ -97,47 +97,47 @@ private:
 
   // ==== RWL status =======
 
+  ImageCtxT &m_image_ctx;
+
   std::atomic<bool> m_initialized = {false};
   std::atomic<bool> m_shutting_down = {false};
   std::atomic<bool> m_invalidating = {false};
 
   ReplicatedWriteLogInternal *m_internal;
+
   const char* rwl_pool_layout_name;
-
-  ImageCtxT &m_image_ctx;
-
   std::string m_log_pool_name;
   bool m_log_is_poolset = false;
-  uint64_t m_log_pool_config_size;     /* Configured size of RWL */
-  uint64_t m_log_pool_actual_size = 0; /* Actual size of RWL pool */
+  uint64_t m_log_pool_config_size;     // configured size of RWL
+  uint64_t m_log_pool_actual_size = 0; // actual size of RWL pool 
   uint32_t m_total_log_entries = 0;
   uint32_t m_free_log_entries = 0;
 
-  std::atomic<uint64_t> m_bytes_allocated = {0}; /* Total bytes allocated in write buffers */
-  uint64_t m_bytes_cached = 0;    /* Total bytes used in write buffers */
-  uint64_t m_bytes_dirty = 0;     /* Total bytes yet to flush to RBD */
+  std::atomic<uint64_t> m_bytes_allocated = {0}; // Total bytes allocated in write buffers 
+  uint64_t m_bytes_cached = 0;    // Total bytes used in write buffers 
+  uint64_t m_bytes_dirty = 0;     // Total bytes yet to flush to RBD 
   uint64_t m_bytes_allocated_cap = 0;
 
-  utime_t m_last_alloc_fail;      /* Entry or buffer allocation fail seen */
+  utime_t m_last_alloc_fail;      // Entry or buffer allocation fail seen 
   std::atomic<bool> m_alloc_failed_since_retire = {false};
 
   ImageCache<ImageCtxT> *m_image_writeback;
   WriteLogGuard m_write_log_guard;
 
-  /* When m_first_free_entry == m_first_valid_entry, the log is empty.
-   * There is always at least one free entry, which can't be used. */
-  uint64_t m_first_free_entry = 0;  /* Entries [from here to m_first_valid_entry-1] are free */
-  uint64_t m_first_valid_entry = 0; /* Entries [from here to m_first_free_entry-1] are valid */
+  // When m_first_free_entry == m_first_valid_entry, the log is empty.
+  // There is always at least one free entry, which can't be used.
+  uint64_t m_first_free_entry = 0;  
+  uint64_t m_first_valid_entry = 0;
 
-  /* Starts at 0 for a new write log. Incremented on every flush. */
+  // starts at 0 for a new write log. Incremented on every flush.
   uint64_t m_current_sync_gen = 0;
 
   std::shared_ptr<SyncPointT> m_current_sync_point = nullptr;
 
-  /* Starts at 0 on each sync gen increase. Incremented before applied to an operation */
+  /* starts at 0 on each sync gen increase. Incremented before applied to an operation */
   uint64_t m_last_op_sequence_num = 0;
 
-  /* All writes bearing this and all prior sync gen numbers are flushed */
+  /* all writes bearing this and all prior sync gen numbers are flushed */
   uint64_t m_flushed_sync_gen = 0;
 
   bool m_persist_on_write_until_flush = true;
@@ -147,13 +147,13 @@ private:
    * causes local node failure. */
   bool m_persist_on_flush_early_user_comp = false; /* Assume local write failure does not cause node failure */
 
-  /* If false, persist each write before completion */
+  /* if false, persist each write before completion */
   bool m_persist_on_flush = false; 
   bool m_flush_seen = false;
 
   util::AsyncOpTracker m_async_op_tracker;
 
-  /* Debug counters for the places m_async_op_tracker is used */
+  /* debug counters for the places m_async_op_tracker is used */
   std::atomic<int> m_async_flush_ops = {0};
   std::atomic<int> m_async_append_ops = {0};
   std::atomic<int> m_async_complete_ops = {0};
@@ -211,17 +211,11 @@ private:
   Finisher m_log_append_finisher;
   Finisher m_on_persist_finisher;
 
- /* increase : schedule_flush_and_append
-  * decrease : flush_then_append_scheduled_ops
-  * Write ops needing flush in local log */
- GenericLogOperationsT m_ops_to_flush;
-
-  // increase : schedule_append
-  // decrease : append_scheduled_ops
-  GenericLogOperationsT m_ops_to_append;
-  WriteLogMap m_blocks_to_log_entries;
-  GenericLogEntries m_log_entries;
-  GenericLogEntries m_dirty_log_entries;
+  GenericLogOperationsT m_ops_to_flush;  // schedule_flush_and_append | flush_then_append_scheduled_ops
+  GenericLogOperationsT m_ops_to_append; // schedule_append | append_scheduled_ops
+  WriteLogMap m_blocks_to_log_entries;   // dispatch | retire_entries
+  GenericLogEntries m_log_entries;       // xxx
+  GenericLogEntries m_dirty_log_entries; // complete_op_log_entries | process_writeback_dirty_entries
 
   // the following three item : construct_flush_entry_context
   int m_flush_ops_in_flight = 0;

@@ -7,7 +7,6 @@ namespace librbd {
 namespace cache {
 namespace rwl {
 
-
 template <typename T>
 class SyncPoint
 {
