@@ -35,12 +35,23 @@ ObjectCacheStore::ObjectCacheStore(CephContext *cct)
   uint64_t max_inflight_ops =
     m_cct->_conf.get_val<uint64_t>("immutable_object_cache_max_inflight_ops");
 
+  // TODO : dehao : enable or skip throttle object.
+  uint64_t promote_throttle_limiter =
+    m_cct->_conf.get_val<uint64_t>("immutable_object_cache_promote_throttle");
+  if (promote_throttle_limiter != 0) {
+    m_throttle = new PromoteThrottle(promote_throttle_limiter);
+    m_throttle_enabled = true;
+  }
+
   m_policy = new SimplePolicy(m_cct, cache_max_size, max_inflight_ops,
                               cache_watermark);
 }
 
 ObjectCacheStore::~ObjectCacheStore() {
   delete m_policy;
+  if (m_throttle_enabled) {
+    delete m_throttle;
+  }
 }
 
 int ObjectCacheStore::init(bool reset) {
@@ -98,6 +109,12 @@ int ObjectCacheStore::do_promote(std::string pool_nspace,
                    << " namespace: " << pool_nspace
                    << " snapshot: " << snap_id << dendl;
 
+  if (m_throttle_enabled) {
+    if (!m_throttle->take_object(1)) {
+      return -1;
+    }
+  }
+
   int ret = 0;
   std::string cache_file_name = get_cache_file_name(pool_nspace, pool_id, snap_id, object_name);
   librados::IoCtx ioctx;
@@ -143,6 +160,10 @@ int ObjectCacheStore::handle_promote_callback(int ret, bufferlist* read_buf,
   if (ret == -ENOENT) {
     // object is empty
     ret = 0;
+  }
+
+  if (m_throttle_enabled) {
+    m_throttle->put_object(1);
   }
 
   std::string cache_file_path = get_cache_file_path(cache_file_name, true);

@@ -9,6 +9,7 @@
 #include "include/rados/librados.hpp"
 
 #include "SimplePolicy.h"
+#include "PromoteThrottle.h"
 
 
 using librados::Rados;
@@ -54,6 +55,8 @@ class ObjectCacheStore {
     ceph::make_mutex("ceph::cache::ObjectCacheStore::m_ioctx_map_lock");
   Policy* m_policy;
   std::string m_cache_root_dir;
+  PromoteThrottle* m_throttle;
+  bool m_throttle_enabled{false};
 };
 
 }  // namespace immutable_obj_cache
