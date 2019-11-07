@@ -1,23 +1,16 @@
 #ifndef RWL_BLOCK_GUARDED_H
 #define RWL_BLOCK_GUARDED_H
 
-
 namespace librbd {
 namespace cache {
 namespace rwl {
 
 struct BlockGuardReqState
 {
-  /* This is a barrier request */
   bool barrier = false;
-
-  /* This is the currently active barrier */
   bool current_barrier = false;
-
   bool detained = false;
-
-  /* Queued for barrier, namely enqueue rwl.m_awaiting_barrier */
-  bool queued = false;
+  bool queued = false; // enqueue m_awaiting_barrier
 
   friend std::ostream &operator<<(std::ostream &os, const BlockGuardReqState &r) {
     os << "barrier=" << r.barrier << ", " << "current_barrier=" << r.current_barrier << ", "
@@ -29,7 +22,6 @@ struct BlockGuardReqState
 class GuardedRequestFunctionContext : public Context
 {
 private:
-  /* lambda function derived from rwl.aio_xxx method */
   boost::function<void(GuardedRequestFunctionContext&)> m_callback;
 
   void finish(int r) override {
@@ -38,7 +30,6 @@ private:
   }
 
 public:
-
   BlockGuardCell *m_cell = nullptr;
   BlockGuardReqState m_state;
 
@@ -51,16 +42,12 @@ public:
   GuardedRequestFunctionContext &operator=(const GuardedRequestFunctionContext&) = delete;
 };
 
-/**
- * there are two situations which will set barrier to be ture.
- *  -- aio_flush and internal_flush --
- */
 struct GuardedRequest
 {
   /* [image_first_byte, image_last_byte] */
   const BlockExtent block_extent;
 
-  /* Work to do when guard on range obtained */
+  /* work to do when guard on range obtained */
   GuardedRequestFunctionContext *guard_ctx;
 
   GuardedRequest(const BlockExtent block_extent,
@@ -84,8 +71,6 @@ struct GuardedRequest
 } // librbd
 
 #endif
-
-
 
 /*
 
@@ -153,40 +138,40 @@ rwl.detain_guarded_request(guard_request)
                                               |
                                               v
                                               |
------------------------------------------------
-|
-|
-|
-|
-|      rwl.internal_flush    rwl.aio_flush       GuardedBlockIORequest::release_cell
-|         |                      |                             |
-|         v                      v                             v
-|         |                      |                             |
-|         ------------------------------------------------------
-|                                |
-|                                v
-|                  rwl.release_guarded_request
-|                     |
-|                     ----> 
-|
-|
-|
-|
---------
-       |
-       v
-       |
-  context::complete 
-     |
-     ---> GuardedRequestFunctionContext::finish 
-            |
-           ---> ReplicatedWriteLog::aio_xxx::lambda_function
-                     |
-                     ---> C_xxx_Request::blockguard_acquired(guarded_ctx)
-                     |
-                     ---> rwl.alloc_and_dispatch_io_req(C_xxx_request)
-
-
+    -------------------------------------------
+    |
+    |
+    |
+    |
+    |      rwl.internal_flush    rwl.aio_flush       GuardedBlockIORequest::release_cell
+    |         |                      |                             |
+    |         v                      v                             v
+    |         |                      |                             |
+    |         ------------------------------------------------------
+    |                                |
+    |                                v
+    |                  rwl.release_guarded_request
+    |                     |
+    |                     ----> 
+    |
+    |
+    |
+    |
+    --------
+           |
+           v
+           |
+      context::complete 
+         |
+         ---> GuardedRequestFunctionContext::finish 
+                |
+               ---> ReplicatedWriteLog::aio_xxx::lambda_function
+                         |
+                         ---> C_xxx_Request::blockguard_acquired(guarded_ctx)
+                         |
+                         ---> rwl.alloc_and_dispatch_io_req(C_xxx_request)
+    
+    
 
 
 

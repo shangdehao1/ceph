@@ -206,8 +206,8 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
       fadvise_flags(fadvise_flags),
       m_image_extents(std::move(image_extents)),
       m_image_extents_summary(m_image_extents),
-      bl(std::move(bl)),  // ##
-      user_req(user_req), // ##
+      bl(std::move(bl)),
+      user_req(user_req),
       m_arrived_time(arrived)
   {
     /* Remove zero length image extents from input */
@@ -222,8 +222,7 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
 
   virtual ~C_BlockIORequest() {}
 
-  auto shared_from_this()
-  {
+  auto shared_from_this() {
     return shared_from(this);
   }
 
@@ -232,17 +231,12 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
   {
     bool initial = false;
 
-    // #### atomic operation ####
     // if m_uer_req_completed == initial, return true and set m_user_req_completed to be true.
     // if m_usr_req_completed != initial, return false, and set initial to be m_user_req_completed.
-    if (m_user_req_completed.compare_exchange_strong(initial, true))
-    {
+    if (m_user_req_completed.compare_exchange_strong(initial, true)) {
       m_user_req_completed_time = ceph_clock_now();
-      //  callback of aio_write interface
       user_req->complete(r);
-    }
-    else
-    {
+    } else {
       if (RWL_VERBOSE_LOGGING) {
         ldout(rwl.m_image_ctx.cct, 20) << this << " user req already completed" << dendl;
       }
@@ -265,22 +259,17 @@ struct C_BlockIORequest : public C_GuardedBlockIORequest<T>
     }
   }
 
-  virtual void finish_req(int r) = 0;
-
-  virtual bool alloc_resources() = 0;
-
-  void deferred()
-  {
+  void deferred() {
     bool initial = false;
-    if (m_deferred.compare_exchange_strong(initial, true))
-    {
+    if (m_deferred.compare_exchange_strong(initial, true)) {
       deferred_handler();
     }
   }
 
+  virtual void finish_req(int r) = 0;
+  virtual bool alloc_resources() = 0;
   virtual void deferred_handler() = 0;
-
-  virtual void dispatch()  = 0;
+  virtual void dispatch() = 0;
 
   virtual const char *get_name() const override {
     return "C_BlockIORequest";
@@ -323,8 +312,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
   ~C_WriteRequest() {}
 
   template <typename... U>
-  static inline std::shared_ptr<C_WriteRequest<T>> create(U&&... arg)
-  {
+  static inline std::shared_ptr<C_WriteRequest<T>> create(U&&... arg) {
     return SharedPtrContext::create<C_WriteRequest<T>>(std::forward<U>(arg)...);
   }
 
@@ -340,8 +328,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
   }
 
   /* Common finish to plain write and compare-and-write (if it writes) */
-  virtual void finish_req(int r)
-  {
+  virtual void finish_req(int r) {
     /* Completed to caller by here (in finish(), which calls this) */
     utime_t now = ceph_clock_now();
 
@@ -354,8 +341,7 @@ struct C_WriteRequest : public C_BlockIORequest<T>
   }
 
   /* Compare and write will override this */
-  virtual void update_req_stats(utime_t &now)
-  {
+  virtual void update_req_stats(utime_t &now) {
     for (auto &allocation : this->m_resources.buffers) {
       rwl.m_perfcounter->tinc(l_librbd_rwl_log_op_alloc_t, allocation.allocation_lat);
       rwl.m_perfcounter->hinc(l_librbd_rwl_log_op_alloc_t_hist, allocation.allocation_lat.to_nsec(), allocation.allocation_size);
@@ -497,18 +483,15 @@ struct C_FlushRequest : public C_BlockIORequest<T>
   ~C_FlushRequest() {}
 
   template <typename... U>
-  static inline std::shared_ptr<C_FlushRequest<T>> create(U&&... arg)
-  {
+  static inline std::shared_ptr<C_FlushRequest<T>> create(U&&... arg) {
     return SharedPtrContext::create<C_FlushRequest<T>>(std::forward<U>(arg)...);
   }
 
-  auto shared_from_this()
-  {
+  auto shared_from_this() {
     return shared_from(this);
   }
 
-  void finish_req(int r)
-  {
+  void finish_req(int r) {
     /* Block guard already released */
     ceph_assert(!this->get_cell());
 
@@ -517,8 +500,7 @@ struct C_FlushRequest : public C_BlockIORequest<T>
     rwl.m_perfcounter->tinc(l_librbd_rwl_aio_flush_latency, now - this->m_arrived_time);
   }
 
-  bool alloc_resources() override
-  {
+  bool alloc_resources() override {
     CephContext *cct = rwl.m_image_ctx.cct;
     ldout(cct, 20) << dendl;
     ceph_assert(!m_log_entry_allocated);
@@ -594,8 +576,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
   ~C_DiscardRequest() {}
 
   template <typename... U>
-  static inline std::shared_ptr<C_DiscardRequest<T>> create(U&&... arg)
-  {
+  static inline std::shared_ptr<C_DiscardRequest<T>> create(U&&... arg) {
     return SharedPtrContext::create<C_DiscardRequest<T>>(std::forward<U>(arg)...);
   }
 
@@ -605,8 +586,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
 
   void finish_req(int r) {}
 
-  bool alloc_resources() override
-  {
+  bool alloc_resources() override {
     CephContext *cct = rwl.m_image_ctx.cct;
     ldout(cct, 20) << dendl;
   
@@ -620,9 +600,9 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
     * as dirty.  This means it's possible to have more bytes dirty than
     * there are bytes cached or allocated. */
     if (rwl.m_free_log_entries) {
-      rwl.m_free_log_entries--; // ##
+      rwl.m_free_log_entries--;
       rwl.m_bytes_dirty += op->log_entry->bytes_dirty();
-      m_log_entry_allocated = true; // ##
+      m_log_entry_allocated = true;
       allocated_here = true;
     }
   
@@ -631,8 +611,7 @@ struct C_DiscardRequest : public C_BlockIORequest<T>
 
   void deferred_handler() override {}
 
-  void dispatch() override
-  {
+  void dispatch() override {
     utime_t now = ceph_clock_now();
     ceph_assert(m_log_entry_allocated);
     this->m_dispatched_time = now;
@@ -689,8 +668,7 @@ struct C_CompAndWriteRequest : public C_WriteRequest<T>
   }
 
   template <typename... U>
-  static inline std::shared_ptr<C_CompAndWriteRequest<T>> create(U&&... arg)
-  {
+  static inline std::shared_ptr<C_CompAndWriteRequest<T>> create(U&&... arg) {
     return SharedPtrContext::create<C_CompAndWriteRequest<T>>(std::forward<U>(arg)...);
   }
 
@@ -706,6 +684,7 @@ struct C_CompAndWriteRequest : public C_WriteRequest<T>
       update_req_stats(now);
     }
   }
+
   void update_req_stats(utime_t &now) override {
     /* Compare-and-write stats. Compare-and-write excluded from most write
      * stats because the read phase will make them look like slow writes in
@@ -830,7 +809,6 @@ struct C_WriteSameRequest : public C_WriteRequest<T>
 // =======================================================================================
 // =======================================================================================
 
-// Takes custody of write_req. Resources must already be allocated.
 template <typename T>
 void C_WriteRequest<T>::dispatch()
 {
@@ -905,7 +883,6 @@ void C_WriteRequest<T>::dispatch()
     auto allocation = m_resources.buffers.begin();
     for (auto &gen_op : m_op_set->operations)
     {
-      // call this method of base class to obtain WriteLogOperation
       auto operation = gen_op->get_write_op();
       log_entries.emplace_back(operation->log_entry);
 
@@ -1030,19 +1007,16 @@ void C_WriteRequest<T>::dispatch()
 
     } else {
       ldout(cct, 20) << "    - earlier sync point still exist, so defer current write " << dendl;
-      /*
-       * The prior sync point is done, so we'll schedule append here.
+
+      /* The prior sync point is done, so we'll schedule append here.
        *
        * If this is persist-on-write mode, true or false.
        * If this is persist-on-flush mode, false
        *
        * If this is persist-on-write, and probably still the caller's thread, we'll use this
-       * caller's thread to perform the persist & replication of the payload buffer.
-       */
-       m_do_early_flush = !(this->m_detained ||
-                            this->m_queued ||
-                            this->m_deferred ||
-                            m_op_set->m_persist_on_flush);
+       * caller's thread to perform the persist & replication of the payload buffer. */
+
+       m_do_early_flush = !(this->m_detained || this->m_queued || this->m_deferred || m_op_set->m_persist_on_flush);
     }
   }
 
@@ -1292,48 +1266,26 @@ bool C_WriteRequest<T>::alloc_resources()
  * 
  * 
  * 
+ *                     dispatch 
+ *                          step 1 :
+ *                              flush_new_sync_point
+ *
+ *                          step 2 :
+ *                             m_op_set = xxx                             
+ *                              setup_op_set
+ *
+ *                           step 3 : 
+ *                              data : request ---> op 
+ *                                     op ----> pmem
+ *           
+ *                           ste 4 : how to schedule schedule_append
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
  *       
  *********************************************************************************/
 
-/*
- for (auto &gen_op : m_op_set->operations)
-    {
-      // call this method of base class to obtain WriteLogOperation
-      auto operation = gen_op->get_write_op();
-      log_entries.emplace_back(operation->log_entry);
-
-      rwl.m_perfcounter->inc(l_librbd_rwl_log_ops, 1);
-
-      // payload need AEP space
-      operation->log_entry->ram_entry.has_data = 1;
-      operation->log_entry->ram_entry.write_data = allocation->buffer_oid;
-      operation->buffer_alloc = &(*allocation);
-
-      ceph_assert(!TOID_IS_NULL(operation->log_entry->ram_entry.write_data));
-
-      operation->log_entry->pmem_buffer = D_RW(operation->log_entry->ram_entry.write_data);
-      operation->log_entry->ram_entry.sync_gen_number = rwl.m_current_sync_gen;
-
-      if (m_op_set->m_persist_on_flush)
-      {
-        operation->log_entry->ram_entry.write_sequence_number = 0;
-      }
-      else
-      {
-        operation->log_entry->ram_entry.write_sequence_number = ++rwl.m_last_op_sequence_num;
-        operation->log_entry->ram_entry.sequenced = 1;
-      }
-
-      // this entry is not sync point
-      operation->log_entry->ram_entry.sync_point = 0;
-      operation->log_entry->ram_entry.discard = 0;
-
-      // ####### break down bufferlist of request, then assgin sub-data to every operation ########
-      operation->bl.substr_of(this->bl, buffer_offset, operation->log_entry->write_bytes());
-
-      buffer_offset += operation->log_entry->write_bytes();
-
-      allocation++;
-    } // for m_op_sets
-
-*/
