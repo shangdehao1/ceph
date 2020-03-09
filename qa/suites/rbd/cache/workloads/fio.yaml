@@ -1,0 +1,32 @@
+tasks:
+- install:
+    extra_packages: ['ceph-immutable-object-cache']
+- ceph:
+    conf:
+      osd:
+        osd shutdown pgref assert: true
+      client:
+        rbd_parent_cache_enabled: true
+        #debug immutable_obj_cache: 20/20
+        immutable object cache path: /tmp/ceph-immutable-object-cache
+        immutable object cache max size: 50G
+      global:
+        auth cluster required: none
+        auth service required: none
+        auth client required : none
+- exec:
+    client.0:
+      - ceph-immutable-object-cache -b
+- rbd_fio:
+    client.0:
+      fio-io-size: 80%
+      formats: [2]
+      features: [[layering]]
+      io-engine: rbd
+      test-clone-io: 1
+      rw: randread
+      runtime: 300
+- exec:
+    client.0:
+      - killall -s 9 ceph-immutable-object-cache
+      - sudo rm -rf /home/ubuntu/cephtest/ceph-immutable-object-cache

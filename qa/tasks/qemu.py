@@ -338,6 +338,18 @@ def _teardown_nfs_mount(remote, client, service_name):
             'sudo', 'systemctl', 'start', service_name
         ])
 
+def _setup_parent_cache(remote, client):
+    remote.run(args=[
+        'ceph-immutable-object-cache', '-b',
+    ])
+
+def _teardown_parent_cache(remote, client):
+    remote.run(args=[
+        'killall', '-s', '9', 'ceph-immutable-object-cache',
+    ])
+    remote.run(args=[
+        'sudo', 'rm', '-rf', '/tmp/ceph-immutable-object-cache',
+    ])
 
 @contextlib.contextmanager
 def run_qemu(ctx, config):
@@ -373,6 +385,7 @@ def run_qemu(ctx, config):
         if remote.os.package_type == "rpm":
             qemu_cmd = "/usr/libexec/qemu-kvm"
         args=[
+            'sudo',
             'adjust-ulimits',
             'ceph-coverage',
             '{tdir}/archive/coverage'.format(tdir=testdir),
@@ -394,6 +407,8 @@ def run_qemu(ctx, config):
                 cachemode = 'writeback'
             else:
                 cachemode = 'writethrough'
+        if ceph_config.get('rbd_parent_cache_enabled', False):
+            _setup_parent_cache(remote, client)
 
         clone = client_config.get('clone', False)
         num_disks = client_config.get('disks', DEFAULT_NUM_DISKS)
@@ -448,6 +463,9 @@ def run_qemu(ctx, config):
 
             # teardown nfs mount
             _teardown_nfs_mount(remote, client, nfs_service_name)
+            # teardown parent cache
+            if ceph_config.get('rbd_parent_cache_enabled', False):
+                _teardown_parent_cache(remote, client)
             # check for test status
             remote.run(
                 args=[
